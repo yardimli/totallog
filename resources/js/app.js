@@ -398,7 +398,9 @@ function initializeHorizontalDrag() {
         let captureTarget = null;
 
         section.addEventListener('pointerdown', event => {
-            if (pointerId !== null || (event.pointerType === 'mouse' && event.button !== 0)) return;
+            // Touch devices provide smoother, inertial scrolling natively. Custom
+            // pointer capture is only needed to add click-and-drag for a mouse.
+            if (event.pointerType !== 'mouse' || pointerId !== null || event.button !== 0) return;
             pointerId = event.pointerId;
             startX = event.clientX;
             startY = event.clientY;

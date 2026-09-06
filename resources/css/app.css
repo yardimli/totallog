@@ -85,6 +85,7 @@
 .horizontal-drag-strip {
     -ms-overflow-style: none;
     scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
 }
 
 .horizontal-drag-strip::-webkit-scrollbar {
