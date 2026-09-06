@@ -150,7 +150,7 @@ class TotalLogTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $this->actingAs($user)->get('/logs/2026-08-16')->assertOk()
+        $response = $this->actingAs($user)->get('/logs/2026-08-16')->assertOk()
             ->assertSee('data-mobile-nav-toggle', false)
             ->assertSee('Event setup')
             ->assertSee('Account setup')
@@ -164,6 +164,19 @@ class TotalLogTest extends TestCase
             ->assertSee('aria-label="Sign out"', false)
             ->assertSee('data-navigation-sign-out', false)
             ->assertDontSee('md:hidden', false);
+
+        $response->assertSee('aria-label="Open notes" title="Notes"', false)
+            ->assertSee('aria-label="Search logs" title="Search logs"', false)
+            ->assertSee('<span>Notes</span>', false)
+            ->assertSee('<span>Search</span>', false)
+            ->assertSee('<span>Appearance</span>', false);
+        preg_match('/<div id="account-navigation".*?<\/nav>/s', $response->getContent(), $matches);
+        $mobileMenu = $matches[0] ?? '';
+        $this->assertStringContainsString('sm:hidden', $mobileMenu);
+        $this->assertStringContainsString('<span>Notes</span>', $mobileMenu);
+        $this->assertStringContainsString('<span>Search</span>', $mobileMenu);
+        $this->assertStringContainsString('<span>Appearance</span>', $mobileMenu);
+        $this->assertLessThan(strpos($response->getContent(), 'data-mobile-nav-menu'), strpos($response->getContent(), 'aria-label="Today"'));
 
         $this->get(route('calendar'))->assertOk()
             ->assertSee(route('logs.today', ['panel' => 'chat']))
@@ -223,6 +236,10 @@ class TotalLogTest extends TestCase
             ->assertSee('value="messages" data-screensaver-option', false);
 
         $this->assertSame(2, substr_count($response->getContent(), '<iframe'));
+
+        $script = file_get_contents(resource_path('js/app.js'));
+        $this->assertStringContainsString("document.querySelector('input[data-screensaver-logo]')", $script);
+        $this->assertStringNotContainsString("document.querySelector('[data-screensaver-logo]')", $script);
     }
 
     public function test_hamburger_can_toggle_the_screensaver(): void
@@ -723,6 +740,10 @@ class TotalLogTest extends TestCase
         $state = $this->withHeader('X-Day-State', 'json')->get('/logs/2026-08-15')->assertOk()->json();
         $this->assertEqualsCanonicalizing([$firstFloating->id, $secondFloating->id], collect($state['sticky_events'])->pluck('id')->all());
         $this->assertSame([$timed->id], collect($state['timeline'])->where('kind', 'schedule')->pluck('task.id')->values()->all());
+
+        $script = file_get_contents(resource_path('js/app.js'));
+        $this->assertStringContainsString("captureTarget = event.target.closest?.('a, button') || section;", $script);
+        $this->assertStringContainsString('captureTarget.setPointerCapture?.(event.pointerId);', $script);
     }
 
     public function test_sticky_event_disappears_after_reaching_its_daily_default_count(): void

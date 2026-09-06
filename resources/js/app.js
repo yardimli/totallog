@@ -395,6 +395,7 @@ function initializeHorizontalDrag() {
         let startScroll = 0;
         let dragging = false;
         let suppressClick = false;
+        let captureTarget = null;
 
         section.addEventListener('pointerdown', event => {
             if (pointerId !== null || (event.pointerType === 'mouse' && event.button !== 0)) return;
@@ -403,7 +404,8 @@ function initializeHorizontalDrag() {
             startY = event.clientY;
             startScroll = section.scrollLeft;
             dragging = false;
-            section.setPointerCapture?.(event.pointerId);
+            captureTarget = event.target.closest?.('a, button') || section;
+            captureTarget.setPointerCapture?.(event.pointerId);
         });
         section.addEventListener('pointermove', event => {
             if (event.pointerId !== pointerId) return;
@@ -426,10 +428,11 @@ function initializeHorizontalDrag() {
                 suppressClick = true;
                 window.setTimeout(() => { suppressClick = false; }, 0);
             }
-            if (section.hasPointerCapture?.(event.pointerId)) section.releasePointerCapture(event.pointerId);
+            if (captureTarget?.hasPointerCapture?.(event.pointerId)) captureTarget.releasePointerCapture(event.pointerId);
             section.classList.remove('cursor-grabbing');
             pointerId = null;
             dragging = false;
+            captureTarget = null;
         };
         section.addEventListener('pointerup', finishDrag);
         section.addEventListener('pointercancel', finishDrag);
@@ -767,7 +770,7 @@ function startSessionKeepAlive() {
 
 function screenSaverSettings() {
     const selected = document.querySelector('input[name="screensaver_style"]:checked')?.value;
-    const logoInput = document.querySelector('[data-screensaver-logo]');
+    const logoInput = document.querySelector('input[data-screensaver-logo]');
     return {
         style: selected || document.body.dataset.screensaverStyle || 'flying-toasters',
         speed: Number(document.querySelector('[data-screensaver-speed]')?.value || document.body.dataset.screensaverSpeed || 1),
@@ -944,10 +947,11 @@ function initScreenSaver() {
     document.querySelectorAll('[data-screensaver-option]').forEach(option => option.addEventListener('change', updatePreview));
     document.querySelector('[data-screensaver-speed]')?.addEventListener('change', updatePreview);
     document.querySelector('[data-screensaver-message]')?.addEventListener('input', updatePreview);
-    document.querySelector('[data-screensaver-logo]')?.addEventListener('change', event => {
+    document.querySelector('input[data-screensaver-logo]')?.addEventListener('change', event => {
         const input = event.currentTarget;
         if (input.dataset.previewUrl) URL.revokeObjectURL(input.dataset.previewUrl);
-        input.dataset.previewUrl = input.files[0] ? URL.createObjectURL(input.files[0]) : '';
+        const file = input.files?.[0];
+        input.dataset.previewUrl = file ? URL.createObjectURL(file) : '';
         updatePreview();
     });
     updatePreview();

@@ -50,7 +50,7 @@
                 <svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M8 7h8M8 11h6"/></svg>
             </a>
         @else
-            <a class="nav-link ml-auto grid h-9 w-9 place-items-center p-0" href="{{ route('notes.index') }}" aria-label="Open notes" title="Notes">
+            <a class="nav-link ml-auto hidden h-9 w-9 place-items-center p-0 sm:grid" href="{{ route('notes.index') }}" aria-label="Open notes" title="Notes">
                 <svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M14 3v4h4M9 11h6M9 15h6"/></svg>
             </a>
         @endif
@@ -60,16 +60,20 @@
                 <svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h2M12 14h2M16 14h2M8 18h2M12 18h2"/></svg>
             </a>
         @endunless
-        <a class="nav-link {{ auth()->user()->is_guest ? 'ml-auto' : '' }} grid h-9 w-9 place-items-center p-0 {{ request()->routeIs('search.*') ? 'nav-active' : '' }}" href="{{ route('search.index') }}" aria-label="Search logs" title="Search logs">
+        <a class="nav-link {{ auth()->user()->is_guest ? 'ml-auto' : '' }} hidden h-9 w-9 place-items-center p-0 sm:grid {{ request()->routeIs('search.*') ? 'nav-active' : '' }}" href="{{ route('search.index') }}" aria-label="Search logs" title="Search logs">
             <svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
         </a>
-        @include('partials.theme-selector')
-        <button type="button" class="nav-link p-2" data-mobile-nav-toggle aria-expanded="false" aria-controls="account-navigation" aria-label="Open navigation" title="Menu"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        @include('partials.theme-selector', ['class' => 'hidden sm:block'])
+        <button type="button" class="nav-link ml-auto p-2 sm:ml-0" data-mobile-nav-toggle aria-expanded="false" aria-controls="account-navigation" aria-label="Open navigation" title="Menu"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     </div>
 
     <div id="account-navigation" class="absolute right-4 top-14 hidden w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:right-6 lg:right-8" data-mobile-nav-menu>
         <div id="account-navigation-links" class="grid gap-1 text-sm">
             @unless(auth()->user()->is_guest)
+            <a class="nav-link flex items-center gap-2 sm:hidden {{ request()->routeIs('notes.*') ? 'nav-active' : '' }}" href="{{ route('notes.index') }}"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 3h9l3 3v15H6z"/><path d="M14 3v4h4M9 11h6M9 15h6"/></svg><span>Notes</span></a>
+            <a class="nav-link flex items-center gap-2 sm:hidden {{ request()->routeIs('search.*') ? 'nav-active' : '' }}" href="{{ route('search.index') }}"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><span>Search</span></a>
+            @include('partials.theme-selector', ['class' => 'sm:hidden', 'navigationMenu' => true])
+            <div class="navigation-divider my-1 border-t border-slate-200 dark:border-slate-800 sm:hidden"></div>
             <a class="nav-link flex items-center gap-2 {{ request()->routeIs('tasks.*') ? 'nav-active' : '' }}" href="{{ route('tasks.index') }}"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 6 2 2 3-3M11 7h9M4 12l2 2 3-3M11 13h9M4 18l2 2 3-3M11 19h9"/></svg><span>Event setup</span></a>
             <a class="nav-link flex items-center gap-2 {{ request()->routeIs('goals.*') ? 'nav-active' : '' }}" href="{{ route('goals.index') }}"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg><span>Goals</span></a>
             <a class="nav-link flex items-center gap-2 {{ request()->routeIs('profile.*', 'settings.*', 'sensors.*', 'api-usage.*', 'admin.*') ? 'nav-active' : '' }}" href="{{ route('profile.edit') }}"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Account setup</span></a>
