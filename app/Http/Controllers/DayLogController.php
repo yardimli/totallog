@@ -16,6 +16,14 @@ class DayLogController extends Controller
 {
     public function __construct(private GithubSensorSync $githubSensor, private BrowsingActivityRecorder $browsingRecorder, private DesktopActivityRecorder $desktopRecorder, private GoogleCalendarSync $googleCalendar, private GoalProgressService $goalProgress) {}
 
+    public function today(Request $request)
+    {
+        return redirect()->route('logs.show', array_merge(
+            $request->query(),
+            ['date' => today()->toDateString()],
+        ));
+    }
+
     public function show(Request $request, string $date)
     {
         $startedAt = hrtime(true);
@@ -189,7 +197,7 @@ class DayLogController extends Controller
             'fetched_at' => now()->toIso8601String(),
             'navigation' => [
                 'previous_url' => route('logs.show', $day->copy()->subDay()->toDateString()),
-                'today_url' => route('logs.show', today()->toDateString()),
+                'today_url' => route('logs.today'),
                 'next_url' => route('logs.show', $day->copy()->addDay()->toDateString()),
                 'calendar_url' => route('calendar'),
             ],

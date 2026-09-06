@@ -1,11 +1,11 @@
 @extends('layouts.app')
 
 @section('content')
-    <div id="calendar-page-container" class="mx-auto max-w-7xl space-y-4 p-4 sm:p-6 lg:p-8" data-calendar-focus-date="{{ $focus->toDateString() }}" data-calendar-view-current="{{ $view }}" data-calendar-today-url="{{ route('calendar', now()->toDateString()) }}?view={{ $view }}">
+    <div id="calendar-page-container" class="mx-auto max-w-7xl space-y-4 p-4 sm:p-6 lg:p-8" data-calendar-focus-date="{{ $focus->toDateString() }}" data-calendar-view-current="{{ $view }}" data-calendar-today-url="{{ route('logs.today') }}">
         <div id="calendar-navigation-controls" class="panel flex flex-wrap items-center gap-2">
             @php $jump = $view === 'month' ? 'month' : ($view === 'week' ? 'week' : 'day'); @endphp
             <a class="btn-secondary" href="{{ route('calendar', $focus->copy()->sub(1, $jump)->toDateString()) }}?view={{ $view }}">← Previous</a>
-            <a class="btn-secondary" href="{{ $todayVisible ? route('logs.show', now()->toDateString()) : route('calendar', now()->toDateString()).'?view='.$view }}" data-calendar-today-action="{{ $todayVisible ? 'open-log' : 'show-period' }}">Today</a>
+            <a class="btn-secondary" href="{{ route('logs.today') }}" data-calendar-today-action="open-log">Today</a>
             <a class="btn-secondary" href="{{ route('calendar', $focus->copy()->add(1, $jump)->toDateString()) }}?view={{ $view }}">Next →</a>
             <div id="calendar-view-controls" class="ml-auto flex items-center gap-1" role="group" aria-label="Calendar view">
                 <a href="{{ route('calendar', $focus->toDateString()) }}?view=week" class="nav-link grid h-9 w-9 place-items-center p-0 {{ $view === 'week' ? 'nav-active' : '' }}" data-calendar-view="week" aria-label="Week view" title="Week view" @if($view === 'week') aria-current="page" @endif>

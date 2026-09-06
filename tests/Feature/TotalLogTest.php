@@ -35,6 +35,18 @@ class TotalLogTest extends TestCase
         $this->assertDatabaseHas('daily_logs', ['user_id' => $user->id, 'log_date' => '2026-08-15 00:00:00']);
     }
 
+    public function test_today_route_resolves_the_date_at_request_time_and_preserves_the_query(): void
+    {
+        Carbon::setTestNow('2026-09-06 00:01:00');
+        try {
+            $this->actingAs(User::factory()->create())
+                ->get(route('logs.today', ['date' => '1999-01-01', 'panel' => 'chat']))
+                ->assertRedirect(route('logs.show', ['date' => '2026-09-06', 'panel' => 'chat']));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_daily_log_navigation_contains_the_date_and_icon_only_day_controls(): void
     {
         $user = User::factory()->create();
@@ -45,7 +57,7 @@ class TotalLogTest extends TestCase
             ->assertSee('Saturday, August 15, 2026')
             ->assertSee('data-day-navigation', false)
             ->assertSee('href="'.route('logs.show', '2026-08-14').'"', false)
-            ->assertSee('href="'.route('logs.show', today()->toDateString()).'"', false)
+            ->assertSee('href="'.route('logs.today').'"', false)
             ->assertSee('href="'.route('logs.show', '2026-08-16').'"', false)
             ->assertSee('aria-label="Previous day"', false)
             ->assertSee('aria-label="Today"', false)
@@ -65,7 +77,7 @@ class TotalLogTest extends TestCase
 
             foreach ([route('calendar'), route('tasks.index')] as $page) {
                 $this->actingAs($user)->get($page)->assertOk()
-                    ->assertSee('href="'.route('logs.show', '2026-09-04').'" class="flex min-w-0 items-center gap-2 font-bold" data-navbar-home', false);
+                    ->assertSee('href="'.route('logs.today').'" class="flex min-w-0 items-center gap-2 font-bold" data-navbar-home', false);
             }
         } finally {
             Carbon::setTestNow();
@@ -99,7 +111,7 @@ class TotalLogTest extends TestCase
         $this->assertStringNotContainsString("requestedView === 'day'", $calendarScript);
     }
 
-    public function test_calendar_today_opens_the_log_when_today_is_visible_and_otherwise_returns_to_its_period(): void
+    public function test_calendar_today_always_uses_the_date_free_today_route(): void
     {
         Carbon::setTestNow('2026-09-04 12:00:00');
         try {
@@ -109,14 +121,11 @@ class TotalLogTest extends TestCase
             foreach ([
                 route('calendar', '2026-09-02').'?view=week',
                 route('calendar', '2026-09-15').'?view=month',
+                route('calendar', '2026-07-15').'?view=week',
+                route('calendar', '2026-07-15').'?view=month',
             ] as $url) {
                 $this->get($url)->assertOk()
-                    ->assertSee('href="'.route('logs.show', '2026-09-04').'" data-calendar-today-action="open-log"', false);
-            }
-
-            foreach (['week', 'month'] as $view) {
-                $this->get(route('calendar', '2026-07-15').'?view='.$view)->assertOk()
-                    ->assertSee('href="'.route('calendar', '2026-09-04').'?view='.$view.'" data-calendar-today-action="show-period"', false);
+                    ->assertSee('href="'.route('logs.today').'" data-calendar-today-action="open-log"', false);
             }
         } finally {
             Carbon::setTestNow();
@@ -157,13 +166,13 @@ class TotalLogTest extends TestCase
             ->assertDontSee('md:hidden', false);
 
         $this->get(route('calendar'))->assertOk()
-            ->assertSee(route('logs.show', today()->toDateString()).'?panel=chat')
+            ->assertSee(route('logs.today', ['panel' => 'chat']))
             ->assertDontSee('aria-label="Open calendar"', false)
-            ->assertDontSee(route('logs.show', today()->toDateString()).'?panel=image');
+            ->assertDontSee(route('logs.today', ['panel' => 'image']));
 
         $this->get(route('tasks.index'))->assertOk()
             ->assertSee('aria-label="Open notes"', false)
-            ->assertSee('href="'.route('logs.show', today()->toDateString()).'" aria-label="Open today\'s log"', false)
+            ->assertSee('href="'.route('logs.today').'" aria-label="Open today\'s log"', false)
             ->assertDontSee('href="'.route('calendar').'" aria-label="Open calendar"', false);
     }
 
@@ -890,7 +899,7 @@ class TotalLogTest extends TestCase
         ]);
         $user = User::factory()->create();
         $log = DailyLog::create(['user_id' => $user->id, 'log_date' => '2026-08-15']);
-        $task = TaskDefinition::create(['user_id' => $user->id, 'name' => 'Stress level', 'options' => ['1', '2', '3', '4', '5'], 'is_sticky' => true]);
+        $task = TaskDefinition::create(['user_id' => $user->id, 'name' => 'Stress level', 'icon_data' => 'data:image/png;base64,event-image', 'options' => ['1', '2', '3', '4', '5'], 'is_sticky' => true]);
         $this->actingAs($user)->postJson(route('events.store', [$log, $task]), [])->assertUnprocessable();
         Carbon::setTestNow('2026-08-15 15:45:00');
         $response = $this->postJson(route('events.store', [$log, $task]), ['value' => '4'])->assertCreated()->assertJsonPath('count', 1)->assertHeader('Server-Timing');
@@ -912,6 +921,7 @@ class TotalLogTest extends TestCase
         $this->assertSame('Xindian District', $locatedEvent->suburb);
         Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://nominatim.openstreetmap.org/reverse?')
             && $request['format'] === 'jsonv2'
+            && $request['accept-language'] === 'en'
             && $request->hasHeader('User-Agent'));
         $this->actingAs(User::factory()->create())->patchJson(route('events.location', $eventId), ['latitude' => 1, 'longitude' => 1])->assertForbidden();
         $this->actingAs($user)->patchJson(route('events.location', $eventId), ['latitude' => 91, 'longitude' => 1])->assertUnprocessable();
@@ -926,7 +936,9 @@ class TotalLogTest extends TestCase
         $this->get(route('logs.show', '2026-08-15'))->assertOk()
             ->assertSee('data-capture-location', false)
             ->assertSee('data-edit-event-name="Stress level"', false)
+            ->assertSee('data-edit-icon="data:image/png;base64,event-image"', false)
             ->assertSee('data-composer-event-source', false)
+            ->assertSee('data-composer-event-image', false)
             ->assertSee('data-edit-location=', false)
             ->assertSee('"latitude":25.033', false)
             ->assertSee('"city":"New Taipei"', false)
@@ -940,6 +952,8 @@ class TotalLogTest extends TestCase
         $script = file_get_contents(resource_path('js/app.js'));
         $this->assertStringContainsString('navigator.geolocation.getCurrentPosition', $script);
         $this->assertStringContainsString('body.location_url', $script);
+        $this->assertStringContainsString("noteHeading.classList.toggle('hidden', mode === 'edit')", $script);
+        $this->assertStringContainsString('renderComposerEventImage(root, kind, iconData)', $script);
     }
 
     public function test_log_entry_media_long_text_and_recording_features_are_removed(): void

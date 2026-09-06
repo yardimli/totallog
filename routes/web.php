@@ -72,6 +72,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/notes/{noteId}/force', [NoteTrashController::class, 'destroy'])->whereNumber('noteId')->name('notes.force-destroy');
     Route::post('/notes/{note}/ai', NoteAiController::class)->name('notes.ai');
     Route::post('/notes/{note}/versions/{version}/restore', [NoteVersionController::class, 'restore'])->name('notes.versions.restore');
+    Route::get('/log/today', [DayLogController::class, 'today'])->name('logs.today');
     Route::get('/logs/{date}', [DayLogController::class, 'show'])->where('date', '\\d{4}-\\d{2}-\\d{2}')->name('logs.show');
     Route::post('/logs/{dailyLog}/blocks', [LogBlockController::class, 'store'])->name('blocks.store');
     Route::patch('/blocks/{block}', [LogBlockController::class, 'update'])->name('blocks.update');

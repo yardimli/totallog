@@ -1,10 +1,11 @@
 @php
     $iconClass = 'h-5 w-5';
     $activeLogDate = request()->routeIs('logs.show') ? request()->route('date') : today()->toDateString();
+    $activeLogUrl = request()->routeIs('logs.show') ? route('logs.show', $activeLogDate) : route('logs.today');
 @endphp
 <nav class="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95" data-primary-navigation>
     <div id="primary-navigation-content" class="mx-auto flex min-h-16 max-w-7xl flex-wrap items-center gap-2 px-4 py-2 sm:flex-nowrap sm:px-6 lg:px-8">
-        <a href="{{ route('logs.show', today()->toDateString()) }}" class="flex min-w-0 items-center gap-2 font-bold" data-navbar-home>
+        <a href="{{ route('logs.today') }}" class="flex min-w-0 items-center gap-2 font-bold" data-navbar-home>
             @include('partials.logo', ['class' => 'h-9 w-9 shrink-0'])
             <span class="min-w-0 leading-tight">
                 <span class="block">Total Log</span>
@@ -21,7 +22,7 @@
                 <a class="nav-link grid h-9 w-9 place-items-center p-0" href="{{ route('logs.show', $day->copy()->subDay()->toDateString()) }}" aria-label="Previous day" title="Previous day">
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
                 </a>
-                <a class="nav-link grid h-9 w-9 place-items-center p-0" href="{{ route('logs.show', today()->toDateString()) }}" aria-label="Today" title="Today">
+                <a class="nav-link grid h-9 w-9 place-items-center p-0" href="{{ route('logs.today') }}" aria-label="Today" title="Today">
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/><circle cx="12" cy="15" r="2" fill="currentColor" stroke="none"/></svg>
                 </a>
                 <a class="nav-link grid h-9 w-9 place-items-center p-0" href="{{ route('logs.show', $day->copy()->addDay()->toDateString()) }}" aria-label="Next day" title="Next day">
@@ -45,7 +46,7 @@
 
         @unless(auth()->user()->is_guest)
         @if(request()->routeIs('notes.*'))
-            <a class="nav-link ml-auto grid h-9 w-9 place-items-center p-0" href="{{ route('logs.show', today()->toDateString()) }}" aria-label="Open today's log" title="Today's log">
+            <a class="nav-link ml-auto grid h-9 w-9 place-items-center p-0" href="{{ route('logs.today') }}" aria-label="Open today's log" title="Today's log">
                 <svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M8 7h8M8 11h6"/></svg>
             </a>
         @else
@@ -55,7 +56,7 @@
         @endif
         @endunless
         @unless(request()->routeIs('calendar', 'logs.*', 'notes.*'))
-            <a class="nav-link grid h-9 w-9 place-items-center p-0" href="{{ route('logs.show', today()->toDateString()) }}" aria-label="Open today's log" title="Today's log">
+            <a class="nav-link grid h-9 w-9 place-items-center p-0" href="{{ route('logs.today') }}" aria-label="Open today's log" title="Today's log">
                 <svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h2M12 14h2M16 14h2M8 18h2M12 18h2"/></svg>
             </a>
         @endunless
@@ -74,9 +75,9 @@
             <a class="nav-link flex items-center gap-2 {{ request()->routeIs('profile.*', 'settings.*', 'sensors.*', 'api-usage.*', 'admin.*') ? 'nav-active' : '' }}" href="{{ route('profile.edit') }}"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Account setup</span></a>
             @endunless
             @if(request()->routeIs('logs.show') && request()->boolean('show_hidden'))
-                <a class="nav-link flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300" href="{{ route('logs.show', $activeLogDate) }}" data-hidden-entries-toggle><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2"/></svg><span data-hidden-entries-label>Hide hidden entries</span></a>
+                <a class="nav-link flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300" href="{{ $activeLogUrl }}" data-hidden-entries-toggle><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2"/></svg><span data-hidden-entries-label>Hide hidden entries</span></a>
             @else
-                <a class="nav-link flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300" href="{{ route('logs.show', $activeLogDate) }}?show_hidden=1" data-hidden-entries-toggle><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2"/></svg><span data-hidden-entries-label>Show hidden entries</span></a>
+                <a class="nav-link flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300" href="{{ $activeLogUrl }}?show_hidden=1" data-hidden-entries-toggle><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2"/></svg><span data-hidden-entries-label>Show hidden entries</span></a>
             @endif
             @unless(auth()->user()->is_guest)
             <div class="navigation-divider my-1 border-t border-slate-200 dark:border-slate-800"></div>
@@ -84,7 +85,7 @@
             @if(request()->routeIs('logs.show'))
                 <button type="button" class="nav-link flex items-center gap-2 text-left font-semibold text-indigo-600 dark:text-indigo-400" data-panel-open="chat"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg><span>Chat with log</span></button>
             @else
-                <a class="nav-link flex items-center gap-2 font-semibold text-indigo-600 dark:text-indigo-400" href="{{ route('logs.show', $activeLogDate) }}?panel=chat"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg><span>Chat with log</span></a>
+                <a class="nav-link flex items-center gap-2 font-semibold text-indigo-600 dark:text-indigo-400" href="{{ route('logs.today', ['panel' => 'chat']) }}"><svg class="{{ $iconClass }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></svg><span>Chat with log</span></a>
             @endif
             @endunless
             <div class="navigation-divider my-1 border-t border-slate-200 dark:border-slate-800"></div>

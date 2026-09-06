@@ -36,6 +36,7 @@ class DayStateTest extends TestCase
             ]);
 
         $response->assertJsonMissingPath('main_html')->assertJsonMissingPath('navigation_html');
+        $response->assertJsonPath('navigation.today_url', route('logs.today'));
         $response->assertJsonFragment(['type' => 'text', 'content' => 'Structured payload', 'emoji' => '🧭']);
         $response->assertJsonFragment(['name' => 'Hydration', 'daily_default_count' => 2]);
     }
@@ -70,6 +71,10 @@ class DayStateTest extends TestCase
         $this->assertStringContainsString("confirmText: 'Go to today'", $script);
         $this->assertStringContainsString("cancelText: 'Stay on this day'", $script);
         $this->assertStringContainsString('scheduleDayReturnReminder();', $script);
+        $this->assertStringContainsString('function startDateRolloverWatch()', $script);
+        $this->assertStringContainsString("title: 'A new day has started'", $script);
+        $this->assertStringContainsString("message: 'Total Log will refresh to the real date.'", $script);
+        $this->assertStringContainsString("document.querySelector('meta[name=\"today-url\"]')?.content || '/log/today'", $script);
         $this->assertStringContainsString('function startTodayActivityRefresh()', $script);
         $this->assertStringContainsString('!activeDayState?.is_today || backgroundSyncQueue.size > 0', $script);
         $this->assertStringContainsString("'[data-overlay][data-open=\"true\"], [data-modal-backdrop]'", $script);

@@ -15,6 +15,7 @@ class EnsureDemoIsReadOnly
             'demo.enter',
             'dashboard',
             'calendar',
+            'logs.today',
             'logs.show',
             'search.index',
             'attachments.show',

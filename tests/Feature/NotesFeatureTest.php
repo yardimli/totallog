@@ -25,7 +25,7 @@ class NotesFeatureTest extends TestCase
             ->assertSee('New note')
             ->assertDontSee('id="notes-page-heading"', false)
             ->assertSee('aria-label="Open today\'s log"', false)
-            ->assertSee('href="'.route('logs.show', today()->toDateString()).'"', false)
+            ->assertSee('href="'.route('logs.today').'"', false)
             ->assertDontSee('aria-label="Open calendar"', false)
             ->assertDontSee('aria-label="Open notes"', false);
 

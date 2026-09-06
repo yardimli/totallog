@@ -32,11 +32,12 @@ function modal({title, message = '', options = null, initial = null, confirmText
             input = backdrop.querySelector('[data-modal-select]'); input.classList.remove('hidden');
             options.forEach(value => { const option = cloneTemplate('select-option-template'); option.value = value; option.textContent = value; input.append(option); });
         } else if (initial !== null) { input = backdrop.querySelector('[data-modal-textarea]'); input.classList.remove('hidden'); input.value = initial; }
-        const cancel = backdrop.querySelector('[data-modal-cancel]'); cancel.textContent = cancelText;
+        const cancel = backdrop.querySelector('[data-modal-cancel]');
+        if (cancelText === null) cancel.classList.add('hidden'); else cancel.textContent = cancelText;
         const confirm = backdrop.querySelector('[data-modal-confirm]'); confirm.textContent = confirmText;
         const close = value => { backdrop.remove(); resolve(value); };
         cancel.addEventListener('click', () => close(null)); confirm.addEventListener('click', () => close(input ? input.value : true));
-        backdrop.addEventListener('click', event => { if (event.target === backdrop) close(null); });
+        backdrop.addEventListener('click', event => { if (cancelText !== null && event.target === backdrop) close(null); });
         document.body.append(backdrop); (input || confirm).focus();
     });
 }
@@ -130,6 +131,9 @@ let activeDayState = null;
 const DAY_RETURN_REMINDER_DELAY = 60 * 60 * 1000;
 let dayReturnReminderTimer = null;
 let dayReturnPromptOpen = false;
+const loadedLocalDate = localDateKey();
+let dateRolloverTimer = null;
+let dateRolloverPromptOpen = false;
 const supportsDayStateNavigation = () => Boolean(document.querySelector('#daily-log-page-container'));
 const snapshotDayState = () => activeDayState ? structuredClone(activeDayState) : null;
 const restoreDayState = state => { if (state) renderDayState(state, {scroll:{x:window.scrollX, y:window.scrollY}}); };
@@ -142,6 +146,39 @@ function viewedCalendarDate() {
     return activeDayState?.date || document.querySelector('[data-calendar-focus-date]')?.dataset.calendarFocusDate || null;
 }
 
+function scheduleDateRolloverCheck() {
+    clearTimeout(dateRolloverTimer);
+    const nextMidnight = new Date();
+    nextMidnight.setHours(24, 0, 0, 100);
+    dateRolloverTimer = window.setTimeout(checkForDateRollover, Math.max(1000, nextMidnight.getTime() - Date.now()));
+}
+
+async function checkForDateRollover() {
+    if (localDateKey() === loadedLocalDate) { scheduleDateRolloverCheck(); return; }
+    if (dateRolloverPromptOpen) return;
+    if (document.querySelector('[data-modal-backdrop]')) {
+        dateRolloverTimer = window.setTimeout(checkForDateRollover, 1000);
+        return;
+    }
+    dateRolloverPromptOpen = true;
+    await modal({
+        title: 'A new day has started',
+        message: 'Total Log will refresh to the real date.',
+        confirmText: 'Refresh now',
+        cancelText: null,
+    });
+    window.location.assign(document.querySelector('meta[name="today-url"]')?.content || '/log/today');
+}
+
+function startDateRolloverWatch() {
+    scheduleDateRolloverCheck();
+    const checkWhenActive = () => { if (!document.hidden) checkForDateRollover(); };
+    document.addEventListener('visibilitychange', checkWhenActive);
+    window.addEventListener('focus', checkWhenActive);
+    window.addEventListener('pageshow', checkWhenActive);
+    document.addEventListener('screensaver:stopped', checkWhenActive);
+}
+
 function scheduleDayReturnReminder() {
     clearTimeout(dayReturnReminderTimer);
     dayReturnReminderTimer = null;
@@ -151,6 +188,7 @@ function scheduleDayReturnReminder() {
 
 async function showDayReturnReminder() {
     dayReturnReminderTimer = null;
+    if (dateRolloverPromptOpen || localDateKey() !== loadedLocalDate) { checkForDateRollover(); return; }
     const promptedDate = viewedCalendarDate();
     if (!promptedDate) return;
     if (promptedDate === localDateKey()) { scheduleDayReturnReminder(); return; }
@@ -262,7 +300,7 @@ function renderTimelineItem(item) {
     } else if (block.type === 'sensor_google_calendar') {
         row.dataset.timelineGoogleCalendar = ''; row.dataset.googleCalendarEvent = JSON.stringify(block.calendar_event || {});
     } else {
-        row.dataset.timelineEdit = ''; row.dataset.editKind = block.edit_kind; row.dataset.editEventName = block.event?.name || ''; row.dataset.editUrl = block.edit_url; row.dataset.editContent = block.content || ''; row.dataset.editEmoji = block.emoji || ''; row.dataset.editUpdated = block.updated || ''; row.dataset.editLocation = JSON.stringify(block.event?.location || null); row.dataset.hideUrl = block.hide_url; row.dataset.deleteUrl = block.delete_url; row.dataset.isHidden = block.is_hidden ? 'true' : 'false';
+        row.dataset.timelineEdit = ''; row.dataset.editKind = block.edit_kind; row.dataset.editEventName = block.event?.name || ''; row.dataset.editUrl = block.edit_url; row.dataset.editContent = block.content || ''; row.dataset.editEmoji = block.emoji || ''; row.dataset.editIcon = block.icon_data || ''; row.dataset.editUpdated = block.updated || ''; row.dataset.editLocation = JSON.stringify(block.event?.location || null); row.dataset.hideUrl = block.hide_url; row.dataset.deleteUrl = block.delete_url; row.dataset.isHidden = block.is_hidden ? 'true' : 'false';
     }
     if (block.is_hidden) row.dataset.hiddenPlannerItem = '';
     row.append(element('time', 'w-20 shrink-0 pt-4 text-center font-mono text-xs font-bold text-slate-500', formatClock(item.time)));
@@ -811,6 +849,7 @@ startSessionKeepAlive();
 initScreenSaver();
 captureCurrentDayState();
 scheduleDayReturnReminder();
+startDateRolloverWatch();
 startTodayActivityRefresh();
 
 document.addEventListener('click', event => {
@@ -1684,7 +1723,17 @@ function renderComposerLocation(root, kind, location) {
     panel.querySelector('[data-composer-location-attribution]')?.classList.toggle('hidden', !place);
 }
 
-function configureComposer({time, mode = 'create', kind = 'block', eventName = '', action = '', content = '', emoji = '📝', updated = '', hideUrl = '', deleteUrl = '', isHidden = false, location = null, pendingEventId = '', isNew = false} = {}) {
+function renderComposerEventImage(root, kind, iconData) {
+    const panel = root?.querySelector('[data-composer-event-image]');
+    const image = panel?.querySelector('[data-composer-event-image-display]');
+    const showImage = kind === 'event' && Boolean(iconData);
+    panel?.classList.toggle('hidden', !showImage);
+    if (!image) return;
+    image.src = showImage ? iconData : '';
+    image.alt = showImage ? 'Event image' : '';
+}
+
+function configureComposer({time, mode = 'create', kind = 'block', eventName = '', action = '', content = '', emoji = '📝', iconData = '', updated = '', hideUrl = '', deleteUrl = '', isHidden = false, location = null, pendingEventId = '', isNew = false} = {}) {
     const root = document.querySelector('[data-overlay="composer"]');
     const timeInput = root?.querySelector('[data-composer-time]');
     const form = root?.querySelector('[data-composer-note-form]');
@@ -1714,8 +1763,11 @@ function configureComposer({time, mode = 'create', kind = 'block', eventName = '
     const showEventSource = kind === 'event' && Boolean(eventName);
     eventSource?.classList.toggle('hidden', !showEventSource);
     if (showEventSource) eventSource.querySelector('[data-composer-event-name]').textContent = eventName;
+    renderComposerEventImage(root, kind, iconData);
     renderComposerLocation(root, kind, location);
-    root.querySelector('[data-note-heading]').textContent = kind === 'event' ? 'Event notes' : (mode === 'edit' ? 'Edit note' : 'Write a note');
+    const noteHeading = root.querySelector('[data-note-heading]');
+    noteHeading.textContent = kind === 'event' ? 'Event notes' : (mode === 'edit' ? 'Edit note' : 'Write a note');
+    noteHeading.classList.toggle('hidden', mode === 'edit');
     const submit = root.querySelector('[data-composer-submit]');
     submit.textContent = 'Add to log';
     submit.classList.toggle('hidden', mode === 'edit');
@@ -2146,7 +2198,7 @@ document.addEventListener('click', async e => {
         else if (timelineItem.matches('[data-timeline-browsing]')) openBrowsingDetails(timelineItem);
         else if (timelineItem.matches('[data-timeline-google-calendar]')) openGoogleCalendarDetails(timelineItem);
         else if (demoReadOnly) toast('The demo is read-only. Create an account to save your own entries.');
-        else if (timelineItem.matches('[data-timeline-edit]')) configureComposer({time: timelineItem.dataset.timelineTime, mode:'edit', kind:timelineItem.dataset.editKind, eventName:timelineItem.dataset.editEventName, action:timelineItem.dataset.editUrl, content:timelineItem.dataset.editContent, emoji:timelineItem.dataset.editEmoji, updated:timelineItem.dataset.editUpdated, hideUrl:timelineItem.dataset.hideUrl, deleteUrl:timelineItem.dataset.deleteUrl, isHidden:timelineItem.dataset.isHidden === 'true', location:JSON.parse(timelineItem.dataset.editLocation || 'null')});
+        else if (timelineItem.matches('[data-timeline-edit]')) configureComposer({time: timelineItem.dataset.timelineTime, mode:'edit', kind:timelineItem.dataset.editKind, eventName:timelineItem.dataset.editEventName, action:timelineItem.dataset.editUrl, content:timelineItem.dataset.editContent, emoji:timelineItem.dataset.editEmoji, iconData:timelineItem.dataset.editIcon, updated:timelineItem.dataset.editUpdated, hideUrl:timelineItem.dataset.hideUrl, deleteUrl:timelineItem.dataset.deleteUrl, isHidden:timelineItem.dataset.isHidden === 'true', location:JSON.parse(timelineItem.dataset.editLocation || 'null')});
         else configureComposer({time:timelineItem.dataset.timelineTime || timelineItem.dataset.currentTime});
     }
     const emptyLogSpace = e.target === document.querySelector('#timeline')
@@ -2265,6 +2317,7 @@ document.addEventListener('click', async e => {
             action:eventUrl,
             content:'',
             emoji:taskEmoji,
+            iconData:taskIcon,
             pendingEventId:optimisticId,
             isNew:true,
         });

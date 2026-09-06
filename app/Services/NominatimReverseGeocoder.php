@@ -9,7 +9,7 @@ class NominatimReverseGeocoder
 {
     public function reverse(float $latitude, float $longitude): ?array
     {
-        $cacheKey = sprintf('nominatim:reverse:%.5f:%.5f', $latitude, $longitude);
+        $cacheKey = sprintf('nominatim:reverse:en:%.5f:%.5f', $latitude, $longitude);
 
         try {
             return Cache::remember($cacheKey, now()->addDays(30), function () use ($latitude, $longitude) {
@@ -30,6 +30,7 @@ class NominatimReverseGeocoder
                                 'format' => 'jsonv2',
                                 'addressdetails' => 1,
                                 'layer' => 'address',
+                                'accept-language' => 'en',
                             ]);
                     } catch (\Throwable) {
                         return null;
