@@ -1839,13 +1839,12 @@ function renderComposerLocation(root, kind, location) {
 }
 
 function renderComposerEventImage(root, kind, iconData) {
-    const panel = root?.querySelector('[data-composer-event-image]');
-    const image = panel?.querySelector('[data-composer-event-image-display]');
+    const image = root?.querySelector('[data-composer-event-image]');
     const showImage = kind === 'event' && Boolean(iconData);
-    panel?.classList.toggle('hidden', !showImage);
     if (!image) return;
+    image.classList.toggle('hidden', !showImage);
     image.src = showImage ? iconData : '';
-    image.alt = showImage ? 'Event image' : '';
+    image.alt = '';
 }
 
 function configureComposer({time, mode = 'create', kind = 'block', eventName = '', action = '', content = '', emoji = '📝', iconData = '', updated = '', hideUrl = '', deleteUrl = '', isHidden = false, location = null, pendingEventId = '', isNew = false} = {}) {

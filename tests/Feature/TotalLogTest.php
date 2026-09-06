@@ -1000,6 +1000,8 @@ class TotalLogTest extends TestCase
             ->assertSee('data-edit-icon="data:image/png;base64,event-image"', false)
             ->assertSee('data-composer-event-source', false)
             ->assertSee('data-composer-event-image', false)
+            ->assertSee('class="hidden h-8 w-8 shrink-0 rounded-lg object-cover" data-composer-event-image', false)
+            ->assertDontSee('id="composer-event-image"', false)
             ->assertSee('data-edit-location=', false)
             ->assertSee('"latitude":25.033', false)
             ->assertSee('"city":"New Taipei"', false)
@@ -1015,6 +1017,7 @@ class TotalLogTest extends TestCase
         $this->assertStringContainsString('body.location_url', $script);
         $this->assertStringContainsString("noteHeading.classList.toggle('hidden', mode === 'edit')", $script);
         $this->assertStringContainsString('renderComposerEventImage(root, kind, iconData)', $script);
+        $this->assertStringContainsString("image.classList.toggle('hidden', !showImage)", $script);
     }
 
     public function test_log_entry_media_long_text_and_recording_features_are_removed(): void
