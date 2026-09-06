@@ -122,6 +122,8 @@ class GoalTest extends TestCase
             ->assertSee('overflow-x-auto overflow-y-hidden', false)
             ->assertSee('draggable="false"', false);
         $content = $response->getContent();
+        preg_match('/<section id="daily-log-goals".*?<\/section>/s', $content, $goalStripMatches);
+        $this->assertStringNotContainsString(' sticky ', $goalStripMatches[0] ?? '');
         $this->assertTrue(strpos($content, 'Inactive goal') < strpos($content, 'Older goal'));
         $this->assertTrue(strpos($content, 'Older goal') < strpos($content, 'Recent goal'));
 

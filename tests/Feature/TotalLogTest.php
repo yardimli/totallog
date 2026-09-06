@@ -723,7 +723,8 @@ class TotalLogTest extends TestCase
         ]);
 
         $response = $this->actingAs($user)->get('/logs/2026-08-15')->assertOk()
-            ->assertSee('id="daily-log-sticky-events" class="horizontal-drag-strip flex touch-auto select-none flex-nowrap', false)
+            ->assertSee('id="daily-log-sticky-events" class="horizontal-drag-strip flex sticky z-30 touch-auto select-none flex-nowrap', false)
+            ->assertSee('style="top:var(--primary-navigation-height, 4rem)"', false)
             ->assertSee('data-horizontal-drag', false)
             ->assertSee('data-sticky-event-bubble', false)
             ->assertSee('data-scheduled-time="17:00"', false)
@@ -742,6 +743,8 @@ class TotalLogTest extends TestCase
         $this->assertSame([$timed->id], collect($state['timeline'])->where('kind', 'schedule')->pluck('task.id')->values()->all());
 
         $script = file_get_contents(resource_path('js/app.js'));
+        $this->assertStringContainsString("document.documentElement.style.setProperty('--primary-navigation-height'", $script);
+        $this->assertStringContainsString("new ResizeObserver(update).observe(navigation)", $script);
         $this->assertStringContainsString("if (event.pointerType !== 'mouse'", $script);
         $this->assertStringContainsString("captureTarget = event.target.closest?.('a, button') || section;", $script);
         $this->assertStringContainsString('captureTarget.setPointerCapture?.(event.pointerId);', $script);

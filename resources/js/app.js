@@ -448,6 +448,16 @@ function initializeHorizontalDrag() {
     });
 }
 
+function initializeStickyDayEventOffset() {
+    const navigation = document.querySelector('[data-primary-navigation]');
+    if (!navigation) return;
+    const update = () => document.documentElement.style.setProperty('--primary-navigation-height', `${navigation.getBoundingClientRect().height}px`);
+    update();
+    if ('ResizeObserver' in window) new ResizeObserver(update).observe(navigation);
+    else window.addEventListener('resize', update);
+}
+
+initializeStickyDayEventOffset();
 initializeHorizontalDrag();
 
 function initializeEventDefinitionReorder() {
