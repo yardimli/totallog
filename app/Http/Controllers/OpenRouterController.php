@@ -119,7 +119,7 @@ class OpenRouterController extends Controller
                     'content' => $block->content ? Str::limit($block->content, 1200) : null,
                 ])->values()->all(),
             ])->values()->all();
-        $events = TaskDefinition::where('user_id', $request->user()->id)->where('is_active', true)->orderBy('name')->get()->map(fn ($event) => [
+        $events = TaskDefinition::where('user_id', $request->user()->id)->where('is_active', true)->orderBy('position')->orderBy('id')->get()->map(fn ($event) => [
             'name' => $event->name, 'emoji' => $event->emoji, 'color' => $event->color_hex, 'options' => $event->options,
             'recurrence_type' => $event->recurrence_type, 'recurrence_days' => $event->recurrence_days,
             'scheduled_times' => $event->scheduled_times, 'visible_after' => $event->visible_after, 'is_sticky' => $event->is_sticky,

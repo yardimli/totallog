@@ -19,10 +19,11 @@ class TaskDefinition extends Model
         'sky' => '#0284c7',
     ];
 
-    protected $fillable = ['user_id', 'name', 'emoji', 'icon_data', 'color', 'is_sticky', 'daily_default_count', 'recurrence_type', 'recurrence_days', 'scheduled_times', 'visible_after', 'options', 'is_active'];
+    protected $fillable = ['user_id', 'position', 'name', 'emoji', 'icon_data', 'color', 'is_sticky', 'daily_default_count', 'recurrence_type', 'recurrence_days', 'scheduled_times', 'visible_after', 'options', 'is_active'];
 
     protected $casts = [
         'is_sticky' => 'boolean',
+        'position' => 'integer',
         'daily_default_count' => 'integer',
         'is_active' => 'boolean',
         'recurrence_days' => 'array',
@@ -34,6 +35,9 @@ class TaskDefinition extends Model
     {
         static::creating(function (TaskDefinition $task) {
             $task->emoji = filled($task->emoji) ? $task->emoji : self::DEFAULT_EMOJI;
+            if ($task->position === null) {
+                $task->position = (int) static::where('user_id', $task->user_id)->max('position') + 1;
+            }
         });
     }
 

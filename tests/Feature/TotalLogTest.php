@@ -391,6 +391,10 @@ class TotalLogTest extends TestCase
             ->assertSee('data-time-slots', false)
             ->assertSee('data-time-slot-add', false)
             ->assertSee('data-event-definition-open=', false)
+            ->assertSee('data-event-sort-list', false)
+            ->assertSee('data-event-sort-item', false)
+            ->assertSee('data-event-drag-handle', false)
+            ->assertSee('>Edit</button>', false)
             ->assertSee('data-overlay="event-definition"', false)
             ->assertSee('data-overlay-side="right"', false)
             ->assertSee('data-event-definition-form', false)
@@ -422,6 +426,39 @@ class TotalLogTest extends TestCase
             'weekdays' => [1, 5], 'scheduled_times' => ['07:00'], 'is_sticky' => '1',
         ])->assertOk()->assertJsonPath('event.name', 'Updated visual slots')->assertJsonPath('reload', true);
         $this->assertDatabaseHas('task_definitions', ['id' => $created->id, 'name' => 'Updated visual slots', 'emoji' => '⏰']);
+    }
+
+    public function test_event_order_is_saved_and_shared_by_setup_sticky_events_and_the_dropdown(): void
+    {
+        $user = User::factory()->create();
+        $other = TaskDefinition::create(['user_id' => User::factory()->create()->id, 'name' => 'Not owned']);
+        $log = DailyLog::create(['user_id' => $user->id, 'log_date' => '2026-09-06']);
+        $first = TaskDefinition::create(['user_id' => $user->id, 'name' => 'First event', 'is_sticky' => true]);
+        $second = TaskDefinition::create(['user_id' => $user->id, 'name' => 'Second event', 'is_sticky' => true]);
+        $third = TaskDefinition::create(['user_id' => $user->id, 'name' => 'Third event', 'is_sticky' => true]);
+        $this->actingAs($user);
+
+        $this->patchJson(route('tasks.reorder'), ['event_ids' => [$third->id, $first->id, $second->id]])
+            ->assertOk()
+            ->assertJsonPath('message', 'Event order saved.');
+        $this->assertDatabaseHas('task_definitions', ['id' => $third->id, 'position' => 0]);
+        $this->assertDatabaseHas('task_definitions', ['id' => $first->id, 'position' => 1]);
+        $this->assertDatabaseHas('task_definitions', ['id' => $second->id, 'position' => 2]);
+
+        $setup = $this->get(route('tasks.index'))->assertOk()->getContent();
+        $this->assertTrue(strpos($setup, 'Third event') < strpos($setup, 'First event'));
+        $this->assertTrue(strpos($setup, 'First event') < strpos($setup, 'Second event'));
+
+        $state = $this->withHeader('X-Day-State', 'json')->get(route('logs.show', '2026-09-06'))->assertOk();
+        $state->assertJsonPath('tasks.0.id', $third->id)
+            ->assertJsonPath('tasks.1.id', $first->id)
+            ->assertJsonPath('tasks.2.id', $second->id)
+            ->assertJsonPath('sticky_events.0.id', $third->id)
+            ->assertJsonPath('sticky_events.1.id', $first->id)
+            ->assertJsonPath('sticky_events.2.id', $second->id);
+
+        $this->patchJson(route('tasks.reorder'), ['event_ids' => [$first->id, $second->id, $other->id]])
+            ->assertUnprocessable();
     }
 
     public function test_guest_navigation_has_auth_and_theme_icons_without_a_hamburger(): void
@@ -641,7 +678,7 @@ class TotalLogTest extends TestCase
             ->assertSee('data-timeline-time="17:00"', false);
     }
 
-    public function test_unscheduled_sticky_events_wrap_as_top_bubbles_while_timed_events_stay_in_the_timeline(): void
+    public function test_unscheduled_sticky_events_scroll_in_one_row_while_timed_events_stay_in_the_timeline(): void
     {
         $user = User::factory()->create();
         $log = DailyLog::create(['user_id' => $user->id, 'log_date' => '2026-08-15']);
@@ -669,7 +706,8 @@ class TotalLogTest extends TestCase
         ]);
 
         $response = $this->actingAs($user)->get('/logs/2026-08-15')->assertOk()
-            ->assertSee('id="daily-log-sticky-events" class="flex flex-wrap gap-2"', false)
+            ->assertSee('id="daily-log-sticky-events" class="horizontal-drag-strip flex touch-pan-y select-none flex-nowrap', false)
+            ->assertSee('data-horizontal-drag', false)
             ->assertSee('data-sticky-event-bubble', false)
             ->assertSee('data-scheduled-time="17:00"', false)
             ->assertDontSee('>Any</time>', false);

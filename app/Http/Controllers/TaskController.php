@@ -12,7 +12,24 @@ class TaskController extends Controller
 {
     public function index(Request $request)
     {
-        return view('tasks.index', ['tasks' => TaskDefinition::where('user_id', $request->user()->id)->latest()->get()]);
+        return view('tasks.index', ['tasks' => TaskDefinition::where('user_id', $request->user()->id)->orderBy('position')->orderBy('id')->get()]);
+    }
+
+    public function reorder(Request $request)
+    {
+        $data = $request->validate([
+            'event_ids' => ['required', 'array', 'min:1'],
+            'event_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+        $ownedIds = $request->user()->taskDefinitions()->pluck('id')->map(fn ($id) => (int) $id)->sort()->values();
+        $requestedIds = collect($data['event_ids'])->map(fn ($id) => (int) $id);
+        abort_unless($requestedIds->sort()->values()->all() === $ownedIds->all(), 422, 'The event order is incomplete.');
+
+        DB::transaction(function () use ($requestedIds) {
+            $requestedIds->values()->each(fn ($id, $position) => TaskDefinition::whereKey($id)->update(['position' => $position]));
+        });
+
+        return response()->json(['message' => 'Event order saved.']);
     }
 
     public function store(Request $request)

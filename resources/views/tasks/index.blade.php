@@ -10,21 +10,21 @@
 @section('content')
     <div id="event-setup-page-container" class="mx-auto max-w-5xl space-y-5 p-4 sm:p-6 lg:p-8">
         <div id="event-setup-introduction" class="panel flex flex-wrap items-center gap-4">
-            <div id="event-setup-introduction-copy" class="min-w-0 flex-1"><h2 class="text-lg font-bold">Your event buttons</h2><p class="mt-1 text-sm text-slate-500">Choose an event to edit it in the side panel. Sticky events appear inside their scheduled hour; other events remain in the daily dropdown.</p></div>
+            <div id="event-setup-introduction-copy" class="min-w-0 flex-1"><h2 class="text-lg font-bold">Your event buttons</h2><p class="mt-1 text-sm text-slate-500">Drag events into your preferred order. Use Edit to change an event in the side panel. This order is also used for sticky events and the daily dropdown.</p></div>
             <span class="rounded-full bg-indigo-100 px-3 py-1 text-sm font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200">{{ $tasks->count() }} {{ Str::plural('event', $tasks->count()) }}</span>
         </div>
 
-        <section id="event-definition-list" class="space-y-3">
+        <section id="event-definition-list" class="space-y-3" data-event-sort-list data-reorder-url="{{ route('tasks.reorder') }}">
             @forelse($tasks as $task)
                 @php
                     $taskEditorData = ['name' => $task->name, 'emoji' => $task->emoji, 'icon_data' => $task->icon_data, 'color' => $task->color_hex, 'recurrence_type' => $task->recurrence_type, 'recurrence_days' => $task->recurrence_days ?? [], 'scheduled_times' => $task->scheduled_times ?? [], 'visible_after' => $task->visible_after, 'options_text' => implode(', ', $task->options ?? []), 'is_sticky' => $task->is_sticky, 'daily_default_count' => $task->daily_default_count, 'update_url' => route('tasks.update', $task), 'delete_url' => route('tasks.destroy', $task)];
                 @endphp
-                <article class="panel transition hover:border-indigo-300 hover:shadow-md dark:hover:border-indigo-700" id="event-definition-{{ $task->id }}">
-                    <button type="button" class="flex w-full items-center gap-3 text-left" data-event-definition-open="event-definition-data-{{ $task->id }}">
-                        <span class="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl text-2xl shadow-sm" style="background-color:{{ $task->color_hex }};color:{{ $task->button_text_color }}" aria-hidden="true">@if($task->icon_data)<img src="{{ $task->icon_data }}" class="h-full w-full object-cover" alt="">@else{{ $task->emoji }}@endif</span>
-                        <span class="min-w-0 flex-1"><strong class="block truncate text-base">{{ $task->name }}</strong><span class="mt-0.5 block text-sm text-slate-500">{{ $task->schedule_summary }} · Daily target {{ $task->daily_target_count }}@if(count($task->scheduled_times ?? []) > 1) ({{ $task->daily_default_count }} per time slot)@endif</span>@if($task->options)<span class="mt-1 block truncate text-xs text-slate-400">Values: {{ implode(', ', $task->options) }}</span>@endif</span>
-                        <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{{ $task->is_sticky ? 'Sticky' : 'Dropdown' }}</span><span class="text-xl text-slate-400" aria-hidden="true">›</span>
-                    </button>
+                <article class="panel flex cursor-grab items-center gap-3 transition hover:border-indigo-300 hover:shadow-md active:cursor-grabbing dark:hover:border-indigo-700" id="event-definition-{{ $task->id }}" draggable="true" data-event-sort-item data-event-id="{{ $task->id }}" title="Drag to reorder">
+                    <span class="touch-none select-none text-xl text-slate-400" data-event-drag-handle aria-hidden="true">⠿</span>
+                    <span class="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-2xl text-2xl shadow-sm" style="background-color:{{ $task->color_hex }};color:{{ $task->button_text_color }}" aria-hidden="true">@if($task->icon_data)<img src="{{ $task->icon_data }}" class="h-full w-full object-cover" alt="">@else{{ $task->emoji }}@endif</span>
+                    <span class="min-w-0 flex-1"><strong class="block truncate text-base">{{ $task->name }}</strong><span class="mt-0.5 block text-sm text-slate-500">{{ $task->schedule_summary }} · Daily target {{ $task->daily_target_count }}@if(count($task->scheduled_times ?? []) > 1) ({{ $task->daily_default_count }} per time slot)@endif</span>@if($task->options)<span class="mt-1 block truncate text-xs text-slate-400">Values: {{ implode(', ', $task->options) }}</span>@endif</span>
+                    <span class="hidden rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300 sm:inline-flex">{{ $task->is_sticky ? 'Sticky' : 'Dropdown' }}</span>
+                    <button type="button" class="btn-secondary shrink-0" data-event-definition-open="event-definition-data-{{ $task->id }}">Edit</button>
                     <script type="application/json" id="event-definition-data-{{ $task->id }}">@json($taskEditorData)</script>
                 </article>
             @empty

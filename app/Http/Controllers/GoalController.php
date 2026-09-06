@@ -28,7 +28,7 @@ class GoalController extends Controller
 
         return view('goals.index', [
             'goals' => $goals,
-            'tasks' => TaskDefinition::where('user_id', $request->user()->id)->orderBy('name')->get(),
+            'tasks' => TaskDefinition::where('user_id', $request->user()->id)->orderBy('position')->orderBy('id')->get(),
             'projects' => $projects,
         ]);
     }

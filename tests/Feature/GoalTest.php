@@ -116,7 +116,7 @@ class GoalTest extends TestCase
         $older->entries()->create(['occurred_at' => '2026-08-12 09:00:00', 'points' => 1]);
 
         $response = $this->actingAs($user)->get(route('logs.show', '2026-08-12'))->assertOk()
-            ->assertSee('data-horizontal-goal-drag', false)
+            ->assertSee('data-horizontal-drag', false)
             ->assertSee('daily-log-goal-strip', false)
             ->assertSee('touch-pan-y select-none flex-nowrap', false)
             ->assertSee('overflow-x-auto overflow-y-hidden', false)
@@ -130,12 +130,18 @@ class GoalTest extends TestCase
             ->assertJsonPath('goals.1.id', $older->id)
             ->assertJsonPath('goals.2.id', $recent->id);
 
+        $this->get(route('calendar', '2026-08-12'))->assertOk()
+            ->assertSee('id="calendar-goals" class="horizontal-drag-strip flex touch-pan-y select-none flex-nowrap', false)
+            ->assertSee('data-horizontal-drag', false)
+            ->assertSee('draggable="false"', false);
+
         $script = file_get_contents(resource_path('js/app.js'));
-        $this->assertStringContainsString('function initializeHorizontalGoalDrag()', $script);
+        $this->assertStringContainsString('function initializeHorizontalDrag()', $script);
+        $this->assertStringContainsString('section.setPointerCapture?.(event.pointerId)', $script);
         $this->assertStringContainsString("section.addEventListener('pointermove'", $script);
         $this->assertStringContainsString('if (!suppressClick) return;', $script);
         $styles = file_get_contents(resource_path('css/app.css'));
-        $this->assertStringContainsString('.daily-log-goal-strip::-webkit-scrollbar', $styles);
+        $this->assertStringContainsString('.horizontal-drag-strip::-webkit-scrollbar', $styles);
         $this->assertStringContainsString('scrollbar-width: none', $styles);
     }
 

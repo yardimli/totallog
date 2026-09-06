@@ -17,10 +17,10 @@
             </div>
         </div>
         @if($goalSnapshots->isNotEmpty())
-            <section id="calendar-goals" class="flex flex-wrap gap-2" aria-label="Goals for {{ $focus->toDateString() }}">
+            <section id="calendar-goals" class="horizontal-drag-strip flex touch-pan-y select-none flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain cursor-grab" aria-label="Goals for {{ $focus->toDateString() }}" data-horizontal-drag>
                 @foreach($goalSnapshots as $snapshot)
                     @php $goal = $snapshot['goal']; @endphp
-                    <a href="{{ route('goals.show', ['goal' => $goal, 'date' => $focus->toDateString()]) }}" class="inline-flex min-w-48 items-center gap-2 rounded-full px-3 py-2 text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" style="background-color:{{ $goal->color }};color:{{ $goal->text_color }}" data-calendar-goal="{{ $goal->id }}">
+                    <a href="{{ route('goals.show', ['goal' => $goal, 'date' => $focus->toDateString()]) }}" class="inline-flex min-w-48 shrink-0 items-center gap-2 rounded-full px-3 py-2 text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" style="background-color:{{ $goal->color }};color:{{ $goal->text_color }}" draggable="false" data-calendar-goal="{{ $goal->id }}">
                         @if($goal->icon_data)<img src="{{ $goal->icon_data }}" class="h-8 w-8 shrink-0 rounded-lg object-cover" alt="">@else<span class="text-lg" aria-hidden="true">{{ $goal->emoji }}</span>@endif
                         <span class="min-w-0"><strong class="block truncate">{{ $goal->name }}</strong><span class="block text-xs opacity-90">{{ $snapshot['points'] }}/{{ $snapshot['target'] }} points{{ $snapshot['latest'] ? ' · '.$snapshot['latest']->occurred_at->diffForHumans() : ' · No activity' }}</span></span>
                     </a>

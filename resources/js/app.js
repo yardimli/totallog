@@ -384,62 +384,171 @@ function updateDayStickyEvents(state) {
     section.setAttribute('aria-label', `Sticky events for ${state.date}`);
 }
 
-function initializeHorizontalGoalDrag() {
-    const section = document.querySelector('[data-horizontal-goal-drag]');
-    if (!section) return;
-    const threshold = 6;
-    let pointerId = null;
-    let startX = 0;
-    let startY = 0;
-    let startScroll = 0;
-    let dragging = false;
-    let suppressClick = false;
+function initializeHorizontalDrag() {
+    document.querySelectorAll('[data-horizontal-drag]').forEach(section => {
+        if (section.dataset.horizontalDragInitialized === 'true') return;
+        section.dataset.horizontalDragInitialized = 'true';
+        const threshold = 5;
+        let pointerId = null;
+        let startX = 0;
+        let startY = 0;
+        let startScroll = 0;
+        let dragging = false;
+        let suppressClick = false;
 
-    section.addEventListener('pointerdown', event => {
-        if (pointerId !== null || (event.pointerType === 'mouse' && event.button !== 0)) return;
-        pointerId = event.pointerId;
-        startX = event.clientX;
-        startY = event.clientY;
-        startScroll = section.scrollLeft;
-        dragging = false;
-    });
-    section.addEventListener('pointermove', event => {
-        if (event.pointerId !== pointerId) return;
-        const deltaX = event.clientX - startX;
-        const deltaY = event.clientY - startY;
-        if (!dragging) {
-            if (Math.abs(deltaX) < threshold) return;
-            if (Math.abs(deltaY) > Math.abs(deltaX)) return;
-            dragging = true;
+        section.addEventListener('pointerdown', event => {
+            if (pointerId !== null || (event.pointerType === 'mouse' && event.button !== 0)) return;
+            pointerId = event.pointerId;
+            startX = event.clientX;
+            startY = event.clientY;
+            startScroll = section.scrollLeft;
+            dragging = false;
             section.setPointerCapture?.(event.pointerId);
-            section.classList.add('cursor-grabbing');
-        }
-        section.scrollLeft = startScroll - deltaX;
-        if (event.cancelable) event.preventDefault();
+        });
+        section.addEventListener('pointermove', event => {
+            if (event.pointerId !== pointerId) return;
+            const points = event.getCoalescedEvents?.() || [event];
+            const point = points[points.length - 1];
+            const deltaX = point.clientX - startX;
+            const deltaY = point.clientY - startY;
+            if (!dragging) {
+                if (Math.abs(deltaX) < threshold) return;
+                if (Math.abs(deltaY) > Math.abs(deltaX)) return;
+                dragging = true;
+                section.classList.add('cursor-grabbing');
+            }
+            section.scrollLeft = startScroll - deltaX;
+            if (event.cancelable) event.preventDefault();
+        });
+        const finishDrag = event => {
+            if (event.pointerId !== pointerId) return;
+            if (dragging) {
+                suppressClick = true;
+                window.setTimeout(() => { suppressClick = false; }, 0);
+            }
+            if (section.hasPointerCapture?.(event.pointerId)) section.releasePointerCapture(event.pointerId);
+            section.classList.remove('cursor-grabbing');
+            pointerId = null;
+            dragging = false;
+        };
+        section.addEventListener('pointerup', finishDrag);
+        section.addEventListener('pointercancel', finishDrag);
+        section.addEventListener('click', event => {
+            if (!suppressClick) return;
+            event.preventDefault();
+            event.stopPropagation();
+            suppressClick = false;
+        }, true);
+        section.addEventListener('dragstart', event => event.preventDefault());
     });
-    const finishDrag = event => {
-        if (event.pointerId !== pointerId) return;
-        if (dragging) {
-            suppressClick = true;
-            window.setTimeout(() => { suppressClick = false; }, 0);
-        }
-        if (section.hasPointerCapture?.(event.pointerId)) section.releasePointerCapture(event.pointerId);
-        section.classList.remove('cursor-grabbing');
-        pointerId = null;
-        dragging = false;
-    };
-    window.addEventListener('pointerup', finishDrag);
-    window.addEventListener('pointercancel', finishDrag);
-    section.addEventListener('click', event => {
-        if (!suppressClick) return;
-        event.preventDefault();
-        event.stopPropagation();
-        suppressClick = false;
-    }, true);
-    section.addEventListener('dragstart', event => event.preventDefault());
 }
 
-initializeHorizontalGoalDrag();
+initializeHorizontalDrag();
+
+function initializeEventDefinitionReorder() {
+    const list = document.querySelector('[data-event-sort-list]');
+    if (!list) return;
+    let dragged = null;
+    let originalIds = [];
+    let touchPointerId = null;
+    let touchStartY = 0;
+    let touchDragging = false;
+
+    const items = () => [...list.querySelectorAll('[data-event-sort-item]')];
+    const ids = () => items().map(item => Number(item.dataset.eventId));
+    const restore = previousIds => {
+        const byId = new Map(items().map(item => [Number(item.dataset.eventId), item]));
+        previousIds.forEach(id => { const item = byId.get(id); if (item) list.append(item); });
+    };
+    const moveAtPointer = (clientX, clientY) => {
+        const target = document.elementFromPoint(clientX, clientY)?.closest('[data-event-sort-item]');
+        if (!target || target === dragged || target.parentElement !== list) return;
+        const rect = target.getBoundingClientRect();
+        list.insertBefore(dragged, clientY < rect.top + rect.height / 2 ? target : target.nextSibling);
+    };
+    const persist = async previousIds => {
+        const nextIds = ids();
+        if (nextIds.join(',') === previousIds.join(',')) return;
+        try {
+            const body = await ajax(list.dataset.reorderUrl, {
+                method:'PATCH',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({event_ids:nextIds}),
+            });
+            toast(body.message || 'Event order saved.');
+        } catch (error) {
+            restore(previousIds);
+            toast(error.message, true);
+        }
+    };
+    const finishVisualDrag = () => {
+        dragged?.classList.remove('opacity-50', 'ring-2', 'ring-indigo-400');
+        dragged = null;
+    };
+
+    list.addEventListener('dragstart', event => {
+        const item = event.target.closest('[data-event-sort-item]');
+        if (!item || event.target.closest('[data-event-definition-open]')) { event.preventDefault(); return; }
+        dragged = item;
+        originalIds = ids();
+        item.classList.add('opacity-50', 'ring-2', 'ring-indigo-400');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', item.dataset.eventId);
+    });
+    list.addEventListener('dragover', event => {
+        if (!dragged) return;
+        event.preventDefault();
+        moveAtPointer(event.clientX, event.clientY);
+    });
+    list.addEventListener('drop', event => { if (dragged) event.preventDefault(); });
+    list.addEventListener('dragend', () => {
+        const previousIds = originalIds;
+        finishVisualDrag();
+        persist(previousIds);
+    });
+
+    list.addEventListener('pointerdown', event => {
+        const handle = event.target.closest('[data-event-drag-handle]');
+        if (!handle || event.pointerType === 'mouse' || touchPointerId !== null) return;
+        dragged = handle.closest('[data-event-sort-item]');
+        originalIds = ids();
+        touchPointerId = event.pointerId;
+        touchStartY = event.clientY;
+        touchDragging = false;
+        handle.setPointerCapture?.(event.pointerId);
+    });
+    list.addEventListener('pointermove', event => {
+        if (event.pointerId !== touchPointerId || !dragged) return;
+        if (!touchDragging && Math.abs(event.clientY - touchStartY) >= 5) {
+            touchDragging = true;
+            dragged.classList.add('opacity-50', 'ring-2', 'ring-indigo-400');
+        }
+        if (!touchDragging) return;
+        moveAtPointer(event.clientX, event.clientY);
+        if (event.cancelable) event.preventDefault();
+    });
+    const finishTouchDrag = event => {
+        if (event.pointerId !== touchPointerId) return;
+        const previousIds = originalIds;
+        const changed = touchDragging;
+        touchPointerId = null;
+        touchDragging = false;
+        finishVisualDrag();
+        if (changed) persist(previousIds);
+    };
+    const cancelTouchDrag = event => {
+        if (event.pointerId !== touchPointerId) return;
+        const previousIds = originalIds;
+        touchPointerId = null;
+        touchDragging = false;
+        restore(previousIds);
+        finishVisualDrag();
+    };
+    list.addEventListener('pointerup', finishTouchDrag);
+    list.addEventListener('pointercancel', cancelTouchDrag);
+}
+
+initializeEventDefinitionReorder();
 
 function updateDayControls(state) {
     const container = document.querySelector('#daily-log-page-container');

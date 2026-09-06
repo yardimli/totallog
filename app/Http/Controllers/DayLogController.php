@@ -49,7 +49,8 @@ class DayLogController extends Controller
         $log->load(['blocks.attachments', 'blocks.taskEvent', 'blocks.browsingActivities', 'blocks.desktopActivities', 'blocks.mobileBrowsingVisits']);
         $tasks = TaskDefinition::where('user_id', $request->user()->id)
             ->where('is_active', true)
-            ->orderBy('name')
+            ->orderBy('position')
+            ->orderBy('id')
             ->get()
             ->filter(fn (TaskDefinition $task) => $task->occursOn($day))
             ->values();
@@ -101,7 +102,7 @@ class DayLogController extends Controller
                     'kind' => 'schedule',
                     'time' => $time,
                     'minute' => ($hour * 60) + $minute,
-                    'sort' => $time.':00-0-'.$task->id,
+                    'sort' => $time.':00-0-'.sprintf('%010d-%010d', $task->position, $task->id),
                     'task' => $task,
                     'is_unscheduled' => false,
                 ]);
