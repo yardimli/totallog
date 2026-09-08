@@ -1851,6 +1851,7 @@ function renderComposerLocation(root, kind, location) {
 function renderComposerEventImage(root, kind, iconData) {
     const image = root?.querySelector('[data-composer-event-image]');
     const showImage = kind === 'event' && Boolean(iconData);
+    root?.querySelector('[data-emoji-picker]')?.classList.toggle('hidden', showImage);
     if (!image) return;
     image.classList.toggle('hidden', !showImage);
     image.src = showImage ? iconData : '';
