@@ -21,8 +21,9 @@ class MobileBrowserLoginTest extends TestCase
 
     private function authorize(array $login, User $user): array
     {
-        $response = $this->actingAs($user)->get($login['url'])->assertRedirect();
-        $url = $response->headers->get('Location');
+        $response = $this->actingAs($user)->get($login['url'])->assertOk()->assertViewIs('mobile.sign-in');
+        $this->assertFalse($response->headers->has('Location'));
+        $url = $response->viewData('callbackURL');
         $this->assertStringStartsWith('totallog://signin?', $url);
         $this->assertStringNotContainsString('token=', $url);
         parse_str(parse_url($url, PHP_URL_QUERY), $parameters);
@@ -93,6 +94,7 @@ class MobileBrowserLoginTest extends TestCase
         $this->postJson('/api/mobile/browser-login/exchange', ['request_id' => $login['request_id'], 'code' => $first['code'], 'verifier' => str_repeat('a', 64)])->assertOk();
         $this->assertDatabaseCount('personal_access_tokens', 1);
     }
+
     public function test_invalid_code_does_not_consume_sign_in_and_reports_the_actual_reason(): void
     {
         $login = $this->start();
@@ -114,4 +116,49 @@ class MobileBrowserLoginTest extends TestCase
         $this->assertSame($owner->id, (int) DB::table('mobile_browser_logins')->where('id', $login['request_id'])->value('user_id'));
     }
 
+    public function test_expiry_uses_absolute_seconds_even_when_the_legacy_timestamp_is_shifted(): void
+    {
+        $user = User::factory()->create();
+        $login = $this->start();
+        $deadline = DB::table('mobile_browser_logins')->where('id', $login['request_id'])->value('expires_at_epoch');
+        $this->assertEqualsWithDelta(now()->getTimestamp() + 600, (int) $deadline, 1);
+        // Simulate the timezone conversion that database TIMESTAMP columns can introduce.
+        DB::table('mobile_browser_logins')->where('id', $login['request_id'])->update(['expires_at' => now()->subHours(8)]);
+        $callback = $this->authorize($login, $user);
+        $this->postJson('/api/mobile/browser-login/exchange', ['request_id' => $login['request_id'], 'code' => $callback['code'], 'verifier' => str_repeat('a', 64)])->assertOk();
+    }
+
+    public function test_utc_and_taipei_requests_share_the_same_expiry_instant(): void
+    {
+        $original = date_default_timezone_get();
+        try {
+            date_default_timezone_set('Asia/Taipei');
+            $login = $this->start();
+            date_default_timezone_set('UTC');
+            $callback = $this->authorize($login, User::factory()->create());
+            date_default_timezone_set('America/Los_Angeles');
+            $this->postJson('/api/mobile/browser-login/exchange', ['request_id' => $login['request_id'], 'code' => $callback['code'], 'verifier' => str_repeat('a', 64)])->assertOk();
+        } finally {
+            date_default_timezone_set($original);
+        }
+    }
+
+    public function test_cancel_invalidates_the_browser_request_and_callback(): void
+    {
+        $login = $this->start();
+        $callback = $this->authorize($login, User::factory()->create());
+        $this->getJson(route('mobile.browser.status', $login['request_id']))->assertJsonPath('active', true);
+        $this->postJson('/api/mobile/browser-login/cancel', ['request_id' => $login['request_id'], 'verifier' => str_repeat('a', 64)])->assertOk();
+        $this->getJson(route('mobile.browser.status', $login['request_id']))->assertJsonPath('active', false);
+        $this->get($login['url'])->assertStatus(410);
+        $this->postJson('/api/mobile/browser-login/exchange', ['request_id' => $login['request_id'], 'code' => $callback['code'], 'verifier' => str_repeat('a', 64)])->assertUnprocessable()->assertJsonPath('error_code', 'sign_in_missing');
+        $this->postJson('/api/mobile/browser-login/cancel', ['request_id' => $login['request_id'], 'verifier' => str_repeat('a', 64)])->assertOk();
+    }
+
+    public function test_another_device_cannot_cancel_a_request(): void
+    {
+        $login = $this->start();
+        $this->postJson('/api/mobile/browser-login/cancel', ['request_id' => $login['request_id'], 'verifier' => str_repeat('c', 64)])->assertForbidden();
+        $this->assertDatabaseHas('mobile_browser_logins', ['id' => $login['request_id']]);
+    }
 }

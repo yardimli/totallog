@@ -35,7 +35,7 @@ struct LoginView: View {
                     HStack { if store.busy { ProgressView() }; Label(store.browserSigningIn ? "Open browser again" : "Sign in with browser", systemImage: "arrow.up.forward.app") }.frame(maxWidth: .infinity).padding(.vertical, 8)
                 }.buttonStyle(.borderedProminent).disabled(store.busy || !store.online)
                 if store.browserSigningIn { Text("Finish signing in in your browser, then allow it to open TotalLog.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center) }
-                if store.browserSigningIn { Button("Cancel sign-in") { store.cancelBrowserLogin() } }
+                if store.browserSigningIn { Button("Cancel sign-in") { store.cancelBrowserLogin() }.disabled(store.busy) }
                 Text(URL(string: store.disk.server)?.host ?? "total-log.com").font(.footnote).foregroundStyle(.secondary)
                 Spacer()
             }.padding(32)

@@ -41,7 +41,6 @@ enum Keychain {
             if disk.server.isEmpty { disk.server = "https://total-log.com" }
             if let saved = Keychain.read(account: "browser-login"), let bytes = saved.data(using: .utf8) {
                 browserLogin = try? JSONDecoder().decode(BrowserLoginPending.self, from: bytes)
-                if let pending = browserLogin, Date().timeIntervalSince(pending.startedAt) > 600 { browserLogin = nil; Keychain.clear(account: "browser-login") }
                 browserSigningIn = browserLogin != nil
             }
             token = Keychain.read() ?? ""; signedIn = !token.isEmpty && !disk.userID.isEmpty
@@ -85,7 +84,7 @@ enum Keychain {
         return reply
     }
     func beginBrowserLogin() async -> URL? {
-        if let pending = browserLogin, Date().timeIntervalSince(pending.startedAt) < 600,
+        if let pending = browserLogin,
            let url = URL(string: pending.server + "/mobile/sign-in/" + pending.requestID) {
             return url
         }
@@ -111,7 +110,13 @@ enum Keychain {
         } catch { self.error = error.localizedDescription; return nil }
     }
     func cancelBrowserLogin() {
+        let pending = browserLogin
         browserLogin = nil; browserSigningIn = false; Keychain.clear(account: "browser-login")
+        if let pending {
+            Task {
+                _ = try? await publicAccountAction(server: pending.server, path: "browser-login/cancel", data: ["request_id": .string(pending.requestID), "verifier": .string(pending.verifier)])
+            }
+        }
     }
     func handleBrowserCallback(_ url: URL) async {
         guard url.scheme == "totallog", url.host == "signin", let pending = browserLogin,
@@ -125,8 +130,8 @@ enum Keychain {
         exchangingBrowserRequest = pending.requestID
         busy = true; defer { busy = false; exchangingBrowserRequest = nil }
         do {
-            guard Date().timeIntervalSince(pending.startedAt) < 600 else { throw AppFailure(message: "Sign-in expired. Please try again.") }
             let reply = try await publicAccountAction(server: pending.server, path: "browser-login/exchange", data: ["request_id": .string(pending.requestID), "verifier": .string(pending.verifier), "code": .string(code)])
+            guard browserLogin?.requestID == pending.requestID else { return }
             let uid = reply["user"]?.object.recordID ?? ""; let newToken = reply.text("token")
             guard !uid.isEmpty, !newToken.isEmpty else { throw AppFailure(message: "The server returned an invalid sign-in response.") }
             guard disk.operations.isEmpty || (disk.userID == uid && disk.server == pending.server) else { throw AppFailure(message: "Sign in to the account that owns your pending edits.") }

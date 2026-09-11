@@ -29,6 +29,7 @@ Route::post('/sensors/browser/mobile-history', MobileBrowserSensorApiController:
 Route::post('/sensors/kindle/book', KindleSensorApiController::class)->name('api.sensors.kindle.book');
 
 Route::prefix('mobile')->group(function () {
+    Route::post('/browser-login/cancel', [\App\Http\Controllers\Mobile\BrowserLoginController::class, 'cancel'])->middleware('throttle:20,1');
     Route::post('/browser-login/start', [\App\Http\Controllers\Mobile\BrowserLoginController::class, 'start'])->middleware('throttle:10,1');
     Route::post('/browser-login/exchange', [\App\Http\Controllers\Mobile\BrowserLoginController::class, 'exchange'])->middleware('throttle:10,1');
     Route::get('/google/callback', [\App\Http\Controllers\Mobile\GoogleController::class, 'callback'])->name('mobile.google.callback');

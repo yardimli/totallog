@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Mobile;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -21,8 +20,8 @@ class BrowserLoginController extends Controller
             'expected_user_id' => 'nullable|integer|min:1',
         ]);
         $id = (string) Str::uuid();
-        DB::table('mobile_browser_logins')->where('expires_at', '<', now())->delete();
-        DB::table('mobile_browser_logins')->insert($data + ['id' => $id, 'expires_at' => now()->addMinutes(10)]);
+        DB::table('mobile_browser_logins')->where(fn ($query) => $query->whereNull('expires_at_epoch')->orWhere('expires_at_epoch', '<=', now()->getTimestamp()))->delete();
+        DB::table('mobile_browser_logins')->insert($data + ['id' => $id, 'expires_at' => now()->addMinutes(10), 'expires_at_epoch' => now()->getTimestamp() + 600]);
 
         return response()->json(['request_id' => $id, 'url' => route('mobile.browser.authorize', $id)]);
     }
@@ -32,7 +31,7 @@ class BrowserLoginController extends Controller
         abort_if($request->user()->is_guest, 403, 'Sign in with a regular TotalLog account.');
 
         return DB::transaction(function () use ($request, $id) {
-            $login = DB::table('mobile_browser_logins')->where('id', $id)->whereNull('consumed_at')->where('expires_at', '>', now())->lockForUpdate()->first();
+            $login = DB::table('mobile_browser_logins')->where('id', $id)->whereNull('consumed_at')->where('expires_at_epoch', '>', now()->getTimestamp())->lockForUpdate()->first();
             abort_unless($login, 410, 'This sign-in expired. Return to the app and try again.');
             abort_if($login->expected_user_id && (int) $login->expected_user_id !== $request->user()->id, 403, 'Sign in to the account that owns the pending iPhone edits.');
             abort_if($login->user_id && (int) $login->user_id !== $request->user()->id, 409, 'This sign-in was already approved by another account. Start again from the app.');
@@ -44,8 +43,33 @@ class BrowserLoginController extends Controller
             DB::table('mobile_browser_logins')->where('id', $id)->update(['user_id' => $request->user()->id, 'code_hash' => hash('sha256', $code)]);
 
             // Only a short-lived, verifier-bound code crosses the browser callback URL.
-            return redirect()->away('totallog://signin?'.http_build_query(['request_id' => $id, 'state' => $login->state, 'code' => $code]))
+            return response()->view('mobile.sign-in', ['callbackURL' => 'totallog://signin?'.http_build_query(['request_id' => $id, 'state' => $login->state, 'code' => $code]), 'statusURL' => route('mobile.browser.status', $id), 'accountName' => $request->user()->name])
                 ->header('Cache-Control', 'no-store')->header('Referrer-Policy', 'no-referrer');
+        });
+    }
+
+    public function browserStatus(Request $request, string $id)
+    {
+        $active = DB::table('mobile_browser_logins')->where('id', $id)->where('user_id', $request->user()->id)
+            ->whereNull('consumed_at')->where('expires_at_epoch', '>', now()->getTimestamp())->exists();
+
+        return response()->json(['active' => $active])->header('Cache-Control', 'no-store');
+    }
+
+    public function cancel(Request $request)
+    {
+        $data = $request->validate(['request_id' => 'required|uuid', 'verifier' => ['required', 'regex:/^[a-f0-9]{64}$/']]);
+
+        return DB::transaction(function () use ($data) {
+            $login = DB::table('mobile_browser_logins')->where('id', $data['request_id'])->lockForUpdate()->first();
+            if ($login) {
+                abort_unless(hash_equals($login->challenge, hash('sha256', $data['verifier'])), 403);
+                if ($login->consumed_at === null) {
+                    DB::table('mobile_browser_logins')->where('id', $login->id)->delete();
+                }
+            }
+
+            return response()->json(['message' => 'Sign-in cancelled.'])->header('Cache-Control', 'no-store');
         });
     }
 
@@ -57,7 +81,7 @@ class BrowserLoginController extends Controller
             $login = DB::table('mobile_browser_logins')->where('id', $data['request_id'])->lockForUpdate()->first();
             $failure = match (true) {
                 ! $login => ['sign_in_missing', 'This sign-in request is no longer available. Start a new sign-in from the app.'],
-                Carbon::parse($login->expires_at)->lte(now()) => ['sign_in_expired', 'Browser sign-in expired after ten minutes. Start a new sign-in from the app.'],
+                ! $login->expires_at_epoch || (int) $login->expires_at_epoch <= now()->getTimestamp() => ['sign_in_expired', 'Browser sign-in expired after ten minutes. Start a new sign-in from the app.'],
                 $login->consumed_at !== null => ['sign_in_used', 'This browser sign-in was already completed. Start a new sign-in from the app.'],
                 ! $login->user_id || ! $login->code_hash => ['sign_in_pending', 'Finish signing in on the website before returning to the app.'],
                 ! hash_equals($login->challenge, hash('sha256', $data['verifier'])) => ['sign_in_device_mismatch', 'This sign-in belongs to a different iPhone request. Cancel it and start again.'],
