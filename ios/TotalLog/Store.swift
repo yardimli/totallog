@@ -3,7 +3,7 @@ import Network
 import Security
 import CryptoKit
 
-struct AppFailure: LocalizedError { var message: String; var errorDescription: String? { message } }
+struct AppFailure: LocalizedError { var message: String; var code: String? = nil; var errorDescription: String? { message } }
 
 enum Keychain {
     static func key(_ account: String) -> [String: Any] { [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "TotalLog", kSecAttrAccount as String: account] }
@@ -30,6 +30,7 @@ enum Keychain {
     @Published var error: String?
     private var token = ""
     private var browserLogin: BrowserLoginPending?
+    private var exchangingBrowserRequest: String?
     private let monitor = NWPathMonitor()
     private let file: URL
     private var healthy = true
@@ -80,10 +81,14 @@ enum Keychain {
         request.httpBody = try JSONEncoder().encode(data)
         let (bytes, response) = try await URLSession.shared.data(for: request)
         let reply = try JSONDecoder().decode(Record.self, from: bytes)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AppFailure(message: reply.text("message")) }
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AppFailure(message: reply.text("message"), code: reply.text("error_code")) }
         return reply
     }
     func beginBrowserLogin() async -> URL? {
+        if let pending = browserLogin, Date().timeIntervalSince(pending.startedAt) < 600,
+           let url = URL(string: pending.server + "/mobile/sign-in/" + pending.requestID) {
+            return url
+        }
         guard !busy else { return nil }; busy = true; defer { busy = false }
         do {
             func randomSecret() throws -> String {
@@ -114,8 +119,11 @@ enum Keychain {
         let items = parts.queryItems ?? []
         func value(_ key: String) -> String? { let matches = items.filter { $0.name == key }; return matches.count == 1 ? matches.first?.value : nil }
         guard value("state") == pending.state, value("request_id") == pending.requestID, let code = value("code") else { error = "This sign-in does not match the request from this iPhone."; return }
+        // iOS may deliver the same deep link more than once while resuming the scene.
+        guard exchangingBrowserRequest != pending.requestID else { return }
         guard !busy else { error = "Please finish the current sync and sign in again."; return }
-        busy = true; defer { busy = false }
+        exchangingBrowserRequest = pending.requestID
+        busy = true; defer { busy = false; exchangingBrowserRequest = nil }
         do {
             guard Date().timeIntervalSince(pending.startedAt) < 600 else { throw AppFailure(message: "Sign-in expired. Please try again.") }
             let reply = try await publicAccountAction(server: pending.server, path: "browser-login/exchange", data: ["request_id": .string(pending.requestID), "verifier": .string(pending.verifier), "code": .string(code)])
@@ -129,7 +137,10 @@ enum Keychain {
             token = newToken; signedIn = true; error = nil
             browserLogin = nil; browserSigningIn = false; Keychain.clear(account: "browser-login")
             busy = false; await sync()
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            if let failure = error as? AppFailure, ["sign_in_missing", "sign_in_expired", "sign_in_used"].contains(failure.code ?? "") { cancelBrowserLogin() }
+            self.error = error.localizedDescription
+        }
     }
     func clearAccount() throws {
         guard disk.operations.isEmpty else { throw AppFailure(message: "Sync or discard pending edits first.") }

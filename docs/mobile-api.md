@@ -8,7 +8,7 @@ The iPhone sign-in screen opens the external browser against `https://total-log.
 
 1. The app generates a random verifier and state and posts `{challenge: SHA256(verifier) as lowercase hex, state, device_name, expected_user_id?}` to `/browser-login/start`. Both verifier and state are 64 hex characters. The server returns `{request_id, url}`.
 2. Open `url` in the browser. The authenticated web route `/mobile/sign-in/{id}` uses the existing login/intended-redirect mechanism. After login it returns to `totallog://signin?request_id=…&state=…&code=…`.
-3. The app verifies request/state and posts `{request_id, code, verifier}` to `/browser-login/exchange`. The response contains the mobile token and account. Codes expire after ten minutes and can be exchanged once; only hashes of codes/verifiers are retained server-side. Pending edits restrict sign-in to their original account.
+3. The app verifies request/state and posts `{request_id, code, verifier}` to `/browser-login/exchange`. The response contains the mobile token and account. Codes expire after ten minutes and can be exchanged once; only hashes of codes/verifiers are retained server-side. Pending edits restrict sign-in to their original account. Reloading the browser authorization page returns the same verifier-bound code for that account instead of replacing it. Once approved, a request cannot be reassigned to a different account. Rejections include a non-secret `error_code` and log only the request ID and reason.
 
 Deploy the new `mobile_browser_logins` migration before using this flow. No extra third-party OAuth configuration is required for TotalLog sign-in. Existing credential endpoints remain available for compatibility but are not used by the iPhone sign-in screen.
 
