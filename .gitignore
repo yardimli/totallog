@@ -26,3 +26,10 @@ yarn-error.log
 *.json
 !/public/data/
 !/public/data/data-by-group.json
+
+# Native iOS source assets and local Xcode output.
+!/ios/**/Contents.json
+/ios/build/
+/ios/DerivedData/
+/ios/**/*.xcuserstate
+/ios/**/xcuserdata/

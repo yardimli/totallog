@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class LogBlock extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     public const DEFAULT_EMOJIS = [
         'event' => '✅',
         'text' => '📝',

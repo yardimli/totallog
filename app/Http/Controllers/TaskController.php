@@ -26,7 +26,7 @@ class TaskController extends Controller
         abort_unless($requestedIds->sort()->values()->all() === $ownedIds->all(), 422, 'The event order is incomplete.');
 
         DB::transaction(function () use ($requestedIds) {
-            $requestedIds->values()->each(fn ($id, $position) => TaskDefinition::whereKey($id)->update(['position' => $position]));
+            $requestedIds->values()->each(fn ($id, $position) => TaskDefinition::findOrFail($id)->update(['position' => $position]));
         });
 
         return response()->json(['message' => 'Event order saved.']);

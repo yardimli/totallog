@@ -23,7 +23,7 @@ class GoalEntryController extends Controller
         abort_unless($goal->isAvailableOn($occurredAt), 422, 'This date is outside the goal.');
         DB::transaction(function () use ($request, $goal, $data, $occurredAt) {
             $entry = $goal->entries()->create(['occurred_at' => $occurredAt, 'points' => $data['points'], 'note' => $data['note'] ?? null]);
-            $log = DailyLog::firstOrCreate(['user_id' => $request->user()->id, 'log_date' => $occurredAt->toDateString()]);
+            $log = $request->user()->dailyLogs()->whereDate('log_date', $occurredAt->toDateString())->first() ?? $request->user()->dailyLogs()->create(['log_date' => $occurredAt->toDateString()]);
             $block = $log->blocks()->create([
                 'type' => 'event',
                 'emoji' => $goal->emoji,

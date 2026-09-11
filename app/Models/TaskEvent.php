@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TaskEvent extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     protected $fillable = ['daily_log_id', 'task_definition_id', 'log_block_id', 'task_name', 'selected_value', 'scheduled_time', 'occurred_at', 'latitude', 'longitude', 'location_accuracy', 'city', 'suburb'];
 
     protected $casts = ['occurred_at' => 'datetime', 'latitude' => 'float', 'longitude' => 'float', 'location_accuracy' => 'float'];

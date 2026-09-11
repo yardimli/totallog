@@ -19,6 +19,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        foreach (array_keys(\App\Services\Mobile\RevisionObserver::ENTITIES) as $model) {
+            $model::observe(\App\Services\Mobile\RevisionObserver::class);
+        }
     }
 }

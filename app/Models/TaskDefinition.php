@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TaskDefinition extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     public const DEFAULT_EMOJI = '✅';
 
     private const LEGACY_COLORS = [

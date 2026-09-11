@@ -128,3 +128,5 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+Route::get('/mobile/sign-in/{id}', [\App\Http\Controllers\Mobile\BrowserLoginController::class, 'authorizeBrowser'])->middleware(['auth', 'throttle:20,1'])->whereUuid('id')->name('mobile.browser.authorize');

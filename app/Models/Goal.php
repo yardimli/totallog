@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Goal extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     public const DEFAULT_EMOJI = '🎯';
 
     protected $fillable = ['user_id', 'name', 'emoji', 'icon_data', 'color', 'target_points', 'period', 'start_date', 'end_date', 'manual_enabled', 'completed_at'];

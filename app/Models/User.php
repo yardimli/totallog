@@ -13,6 +13,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
     use HasApiTokens, HasFactory, Notifiable;
 
     /**

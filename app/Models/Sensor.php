@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Sensor extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     public const GITHUB = 'github';
 
     public const BROWSER = 'browser';
