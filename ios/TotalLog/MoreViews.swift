@@ -54,13 +54,12 @@ struct SettingsView: View {
     @State private var model = ""
     @State private var apiKey = ""
     @State private var removeKey = false
-    @AppStorage("totalLogTheme") private var theme = "system"
     var body: some View {
         Form {
             Section("Display") {
                 Picker("Clock", selection: $timeFormat) { Text("12 hour").tag("12"); Text("24 hour").tag("24") }
                 Picker("Week begins", selection: $weekStart) { ForEach(0..<7, id: \.self) { Text(["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][$0]).tag($0) } }
-                Picker("iPhone appearance", selection: $theme) { Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") }
+                LabeledContent("Appearance", value: "Follows iPhone settings")
             }
             Section("OpenRouter") { TextField("Default model ID", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled(); SecureField("Replace API key", text: $apiKey); Toggle("Remove API key", isOn: $removeKey) }
             Section { Button("Save settings") {

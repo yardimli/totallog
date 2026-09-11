@@ -14,6 +14,12 @@ Deploy both the `mobile_browser_logins` table migration and the `add_absolute_ex
 
 ## Authentication and snapshots
 
+Calendar fields `logs[].log_date` and `goals[].start_date/end_date` are date-only
+`YYYY-MM-DD` strings (or null for open goal boundaries), never UTC timestamps.
+Clients must preserve these calendar dates without timezone conversion. Actual
+instants, including edit timestamps, remain ISO 8601 timestamps.
+
+
 - `POST /login`: `{email, password, device_name}` → `{token, user, server_time}`.
 - `POST /register`: `{name, email, password, password_confirmation}`.
 - `POST /forgot-password`: `{email}`.

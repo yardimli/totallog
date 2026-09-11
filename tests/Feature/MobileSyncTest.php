@@ -61,6 +61,44 @@ class MobileSyncTest extends TestCase
         $this->push($op)->assertJsonPath('results.0.status', 'rejected');
     }
 
+    public function test_snapshot_preserves_calendar_dates_in_every_server_timezone(): void
+    {
+        $originalTimezone = date_default_timezone_get();
+        $originalConfig = config('app.timezone');
+        try {
+            foreach (['Asia/Taipei', 'Pacific/Kiritimati', 'America/Los_Angeles', 'Pacific/Pago_Pago', 'UTC'] as $timezone) {
+                config(['app.timezone' => $timezone]);
+                date_default_timezone_set($timezone);
+                $user = $this->signIn();
+                $log = $user->dailyLogs()->create(['log_date' => '2026-09-11']);
+                $storedDate = $log->fresh()->getRawOriginal('log_date');
+                $log->blocks()->create(['type' => 'text', 'content' => 'Friday']);
+                $user->goals()->create([
+                    'name' => 'Date boundaries', 'emoji' => '🎯', 'color' => '#4f46e5',
+                    'target_points' => 5, 'period' => 'weekly', 'manual_enabled' => true,
+                    'start_date' => '2026-09-01', 'end_date' => '2026-09-30',
+                ]);
+                $user->goals()->create([
+                    'name' => 'Open dates', 'emoji' => '🎯', 'color' => '#4f46e5',
+                    'target_points' => 1, 'period' => 'weekly', 'manual_enabled' => true,
+                ]);
+
+                $snapshot = $this->getJson('/api/mobile/snapshot')->assertOk()
+                    ->assertJsonPath('logs.0.log_date', '2026-09-11')
+                    ->assertJsonPath('blocks.0.daily_log_id', $log->id);
+                $goals = collect($snapshot->json('goals'))->keyBy('name');
+                $this->assertSame('2026-09-01', $goals['Date boundaries']['start_date']);
+                $this->assertSame('2026-09-30', $goals['Date boundaries']['end_date']);
+                $this->assertNull($goals['Open dates']['start_date']);
+                $this->assertNull($goals['Open dates']['end_date']);
+                $this->assertSame($storedDate, $log->fresh()->getRawOriginal('log_date'));
+            }
+        } finally {
+            config(['app.timezone' => $originalConfig]);
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
     public function test_last_edit_timestamp_wins_regardless_of_arrival_order(): void
     {
         $user = $this->signIn();

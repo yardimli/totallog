@@ -102,3 +102,22 @@ Suggested first device check:
 The mobile browser-sign-in and sync API tests pass together (22 tests, 162 assertions), including cross-timezone expiry and server cancellation, as do the standalone Swift merge checks. The updated Swift sources also pass iPhone-simulator type checking. The repository-wide PHP run has 137 passing tests and two unrelated failures in unchanged files: a semantic-class check at `resources/views/logs/show.blade.php:55`, and the absent tracked `public/totallog-chrome-extension/manifest.json`. The web asset build also needs ES-module interpretation for its existing PostCSS config with the installed Node version; verification assets were built with a temporary `type: module` setting, then `package.json` was restored. No web build configuration change is included here.
 
 Authentication follows Laravel's [Sanctum mobile token approach](https://laravel.com/docs/10.x/sanctum#mobile-application-authentication). The app UI is built with [SwiftUI](https://developer.apple.com/documentation/swiftui).
+
+### Native planner appearance
+
+The journal has Day, Week, and Month modes, previous/next navigation and a date
+picker. Month uses seven columns; week cards wrap to fit the iPhone. Goal and
+sticky-event pills retain their configured colors. Timeline details and setup
+forms use native sheets, and desktop/browser activity is grouped into duration
+cards. Event order remains editable with the native list reorder controls.
+Goals show progress sources, activity, and twelve periods of history.
+
+Appearance follows the iPhone's system Light/Dark setting, including automatic
+scheduled changes. There is no app-specific appearance override. Native color,
+date, time, and photo pickers are used in setup forms.
+
+For device review, check all three journal modes, a populated desktop/browser
+entry, event editing/reordering, goal setup/history, and system Light/Dark with
+larger text enabled. These screens use the existing persisted snapshot and
+mutation queue; an offline edit should remain visible after relaunch and sync
+when the phone reconnects.

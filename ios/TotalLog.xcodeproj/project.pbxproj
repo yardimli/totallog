@@ -2,14 +2,22 @@
 { archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
 53D200D8B422B5054F022C24 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountViews.swift; sourceTree = "<group>";};
 1D7FCD8BDBA19E4C2132BE3C = {isa = PBXBuildFile; fileRef = 53D200D8B422B5054F022C24;};
+DCB8DB0EB8096AE52DEEA7ED = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalPresentation.swift; sourceTree = "<group>";};
+1D2099654C149137C833F59C = {isa = PBXBuildFile; fileRef = DCB8DB0EB8096AE52DEEA7ED;};
+0C3CFEFE024A7F2A6DDA2A63 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalViews.swift; sourceTree = "<group>";};
+9013DD3290E0D24805332B92 = {isa = PBXBuildFile; fileRef = 0C3CFEFE024A7F2A6DDA2A63;};
 B2FB439851B07666443FB69F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationView.swift; sourceTree = "<group>";};
 E56982D8E4E23159B4A439AC = {isa = PBXBuildFile; fileRef = B2FB439851B07666443FB69F;};
 8BF4A28E43F6CF370D3EE1C2 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>";};
 D1B1E93CC8825EE71A6BC9AF = {isa = PBXBuildFile; fileRef = 8BF4A28E43F6CF370D3EE1C2;};
 20DA9B9E5D4CAE769E90AE5D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreViews.swift; sourceTree = "<group>";};
 CEC870408E47B08053335437 = {isa = PBXBuildFile; fileRef = 20DA9B9E5D4CAE769E90AE5D;};
+0506C3E3244CF12996D9C375 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerStyle.swift; sourceTree = "<group>";};
+ED7754EF57B58E1BB788B693 = {isa = PBXBuildFile; fileRef = 0506C3E3244CF12996D9C375;};
 184A67CC363CF9CEB15E2EC6 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningViews.swift; sourceTree = "<group>";};
 96851B376B1E83E455D607A2 = {isa = PBXBuildFile; fileRef = 184A67CC363CF9CEB15E2EC6;};
+E606C6FEDC3970AF2CB7B68D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorActivityView.swift; sourceTree = "<group>";};
+80E0087C54EDC1233710E659 = {isa = PBXBuildFile; fileRef = E606C6FEDC3970AF2CB7B68D;};
 0991948DBEFEC33CC776D59D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>";};
 5CC0D972A739984FFFBD4091 = {isa = PBXBuildFile; fileRef = 0991948DBEFEC33CC776D59D;};
 8DEB66A4A90B06652ACE603A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncMerge.swift; sourceTree = "<group>";};
@@ -21,10 +29,10 @@ B30D2D9F8677DB1A717CD4F1 = {isa = PBXBuildFile; fileRef = AA2543B71A2229BAC578E5
 96ED5C5789B174A01557791C = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>";};
 07B760A8663938679E1BD8F1 = {isa = PBXBuildFile; fileRef = 96ED5C5789B174A01557791C;};
 38A007151ABE87CC01A5B6E9 = {isa = PBXFileReference; explicitFileType = wrapper.application; path = TotalLog.app; sourceTree = BUILT_PRODUCTS_DIR;};
-BCE16DD0260827ECF338C787 = {isa = PBXGroup; children = (53D200D8B422B5054F022C24,B2FB439851B07666443FB69F,8BF4A28E43F6CF370D3EE1C2,20DA9B9E5D4CAE769E90AE5D,184A67CC363CF9CEB15E2EC6,0991948DBEFEC33CC776D59D,8DEB66A4A90B06652ACE603A,AA2543B71A2229BAC578E5F9,3685E330EC5277A9DD5661C6,96ED5C5789B174A01557791C,); path = TotalLog; sourceTree = "<group>";};
+BCE16DD0260827ECF338C787 = {isa = PBXGroup; children = (53D200D8B422B5054F022C24,DCB8DB0EB8096AE52DEEA7ED,0C3CFEFE024A7F2A6DDA2A63,B2FB439851B07666443FB69F,8BF4A28E43F6CF370D3EE1C2,20DA9B9E5D4CAE769E90AE5D,0506C3E3244CF12996D9C375,184A67CC363CF9CEB15E2EC6,E606C6FEDC3970AF2CB7B68D,0991948DBEFEC33CC776D59D,8DEB66A4A90B06652ACE603A,AA2543B71A2229BAC578E5F9,3685E330EC5277A9DD5661C6,96ED5C5789B174A01557791C,); path = TotalLog; sourceTree = "<group>";};
 FBDC4F23F93125BBEEAE800C = {isa = PBXGroup; children = (38A007151ABE87CC01A5B6E9,); name = Products; sourceTree = "<group>";};
 B28B7AF69320201D1CF206EB = {isa = PBXGroup; children = (BCE16DD0260827ECF338C787,FBDC4F23F93125BBEEAE800C,); sourceTree = "<group>";};
-D3C3E067FC1BBCCEAA4D9313 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (1D7FCD8BDBA19E4C2132BE3C,E56982D8E4E23159B4A439AC,D1B1E93CC8825EE71A6BC9AF,CEC870408E47B08053335437,96851B376B1E83E455D607A2,5CC0D972A739984FFFBD4091,FCF1D0713A922CBF9AF6E831,B30D2D9F8677DB1A717CD4F1,); runOnlyForDeploymentPostprocessing = 0;};
+D3C3E067FC1BBCCEAA4D9313 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (1D7FCD8BDBA19E4C2132BE3C,1D2099654C149137C833F59C,9013DD3290E0D24805332B92,E56982D8E4E23159B4A439AC,D1B1E93CC8825EE71A6BC9AF,CEC870408E47B08053335437,ED7754EF57B58E1BB788B693,96851B376B1E83E455D607A2,80E0087C54EDC1233710E659,5CC0D972A739984FFFBD4091,FCF1D0713A922CBF9AF6E831,B30D2D9F8677DB1A717CD4F1,); runOnlyForDeploymentPostprocessing = 0;};
 ECE2D868E17AEF81A05610A3 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (04200CFFD12D083534B07BB1,07B760A8663938679E1BD8F1,); runOnlyForDeploymentPostprocessing = 0;};
 BEE832DE65DB5CA7507F7EF9 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
 7082CC0B6FC1282FCEABD07A = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = TotalLog/Info.plist; INFOPLIST_KEY_CFBundleDisplayName = TotalLog; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.totallog.iphone; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;}; name = Debug;};

@@ -48,8 +48,9 @@ class SyncController extends Controller
             'schema_version' => 1, 'server_time' => now()->utc()->toISOString(),
             'user' => $user->fresh()->only('id', 'name', 'email', 'time_format', 'week_starts_on', 'default_chat_model', 'screensaver_enabled', 'screensaver_style', 'screensaver_wait_minutes', 'screensaver_speed', 'screensaver_message', 'is_admin'),
             'tasks' => $user->taskDefinitions()->orderBy('position')->orderBy('id')->get(),
-            'goals' => $user->goals()->with(['sources', 'entries'])->get(),
-            'logs' => $user->dailyLogs()->orderBy('log_date')->get(),
+            // Calendar dates are not instants: preserve their database day across timezones.
+            'goals' => $user->goals()->with(['sources', 'entries'])->get()->each(fn ($goal) => $goal->mergeCasts(['start_date' => 'date:Y-m-d', 'end_date' => 'date:Y-m-d'])),
+            'logs' => $user->dailyLogs()->orderBy('log_date')->get()->each(fn ($log) => $log->mergeCasts(['log_date' => 'date:Y-m-d'])),
             'blocks' => LogBlock::whereHas('dailyLog', fn ($q) => $q->where('user_id', $user->id))->with(['taskEvent', 'attachments', 'browsingActivities', 'desktopActivities', 'mobileBrowsingVisits', 'kindleReadingProgress', 'googleCalendarEvent'])->orderBy('position')->get(),
             'sensors' => $user->sensors()->get()->map(fn ($s) => $s->only('id', 'type', 'username', 'enabled', 'last_checked_at', 'last_error', 'updated_at')),
             'chat_proposals' => \App\Models\ChatActionProposal::where('user_id', $user->id)->where('status', 'pending')->where('expires_at', '>', now())->get(['id', 'daily_log_id', 'summary', 'expires_at']),
