@@ -14,6 +14,36 @@ class DayStateTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_revision_check_ignores_clock_changes_but_detects_edits_and_deletions(): void
+    {
+        Carbon::setTestNow('2026-09-15 09:00:00');
+        try {
+            $user = User::factory()->create();
+            $log = DailyLog::create(['user_id' => $user->id, 'log_date' => '2026-09-15']);
+            $block = $log->blocks()->create(['type' => 'text', 'emoji' => 'X', 'content' => 'Original', 'occurred_at' => now()]);
+            $url = route('logs.show', '2026-09-15');
+            $this->actingAs($user)->withHeader('X-Day-State', 'json');
+            $revision = $this->get($url)->assertOk()->json('revision');
+
+            Carbon::setTestNow('2026-09-15 09:02:00');
+            $this->withHeader('X-Day-Revision', $revision)->get($url)
+                ->assertOk()->assertExactJson(['unchanged' => true, 'revision' => $revision])
+                ->assertHeader('Cache-Control', 'no-store, private');
+
+            $block->update(['content' => 'Edited without adding a row']);
+            $edited = $this->get($url)->assertOk()->assertJsonMissingPath('unchanged')
+                ->assertJsonFragment(['content' => 'Edited without adding a row']);
+            $this->assertNotSame($revision, $edited->json('revision'));
+
+            $block->delete();
+            $this->withHeader('X-Day-Revision', $edited->json('revision'))->get($url)
+                ->assertOk()->assertJsonMissingPath('unchanged')
+                ->assertJsonMissing(['content' => 'Edited without adding a row']);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function test_day_navigation_can_load_a_json_state_document(): void
     {
         $user = User::factory()->create();

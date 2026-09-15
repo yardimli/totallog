@@ -44,7 +44,7 @@ class GoalTest extends TestCase
         $this->get(route('calendar', '2026-08-12').'?view=week')->assertOk()
             ->assertSee('data-calendar-goal="'.$goal->id.'"', false)->assertSee('3/5 points')->assertSee('Weekly shipping');
         $this->get(route('logs.show', '2026-08-12'))->assertOk()
-            ->assertSee('data-day-goal="'.$goal->id.'"', false)->assertSee('3/5 points')->assertSee('Weekly shipping');
+            ->assertSee('data-day-goal="'.$goal->id.'"', false)->assertSee('class="shrink-0 rounded-full bg-white/20 px-2">3/5</span>', false)->assertSee('Weekly shipping');
         $this->withHeader('X-Day-State', 'json')->get(route('logs.show', '2026-08-12'))->assertOk()
             ->assertJsonPath('goals.0.id', $goal->id)->assertJsonPath('goals.0.points', 3)->assertJsonPath('goals.0.target', 5);
         $this->get(route('goals.show', ['goal' => $goal, 'date' => '2026-08-12']))->assertOk()

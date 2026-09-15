@@ -171,11 +171,25 @@ class DayLogController extends Controller
         }
 
         $dayState = $this->dayState($request, $day, $log, $tasks, $counts, $slotCounts, $timeline, $goalSnapshots, $floatingStickyTasks, $showHidden, $nextStickyVisibility);
+        // Ignore clock-only presentation changes when checking for new data.
+        $revisionState = $dayState;
+        unset($revisionState['fetched_at']);
+        $revisionState['timeline'] = array_values(array_filter($revisionState['timeline'], fn ($item) => in_array($item['kind'], ['block', 'schedule'], true)));
+        foreach ($revisionState['goals'] as &$goal) {
+            unset($goal['latest']);
+        }
+        unset($goal);
+        $dayState['revision'] = hash('sha256', json_encode($revisionState, JSON_THROW_ON_ERROR));
         $mainFragment = $request->header('X-Day-View') === 'main';
         $viewData = compact('day', 'log', 'tasks', 'counts', 'slotCounts', 'timeline', 'goalSnapshots', 'floatingStickyTasks', 'showHidden', 'mainFragment', 'nextStickyVisibility', 'dayState');
         $timing = sprintf('day-view;dur=%.1f', (hrtime(true) - $startedAt) / 1_000_000);
 
         if ($request->header('X-Day-State') === 'json') {
+            if ($request->header('X-Day-Revision') === $dayState['revision']) {
+                return response()->json(['unchanged' => true, 'revision' => $dayState['revision']])
+                    ->header('Server-Timing', $timing)
+                    ->header('Cache-Control', 'no-store, private');
+            }
             return response()->json($dayState)
                 ->header('Server-Timing', $timing)
                 ->header('Cache-Control', 'no-store, private');
@@ -221,6 +235,7 @@ class DayLogController extends Controller
                 'points' => $snapshot['points'],
                 'target' => $snapshot['target'],
                 'latest' => $snapshot['latest']?->occurred_at->diffForHumans(),
+                'latest_at' => $snapshot['latest']?->occurred_at->toIso8601String(),
                 'url' => route('goals.show', ['goal' => $snapshot['goal'], 'date' => $day->toDateString()]),
             ])->values()->all(),
             'timeline' => $timeline->map(function (array $item) use ($request, $log, $counts, $slotCounts) {

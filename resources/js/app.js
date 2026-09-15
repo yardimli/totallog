@@ -364,12 +364,13 @@ function updateDayGoals(state) {
     section.classList.toggle('flex', goals.length > 0);
     section.setAttribute('aria-label', `Goals for ${state.date}`);
     goals.forEach(goal => {
-        const link = element('a', 'inline-flex min-w-48 shrink-0 items-center gap-2 rounded-full px-3 py-2 text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md');
+        const link = element('a', 'inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md');
         link.href = goal.url; link.style.backgroundColor = goal.color; link.style.color = goal.text_color; link.dataset.dayGoal = goal.id;
         link.draggable = false;
         const emoji = renderEntryIcon(goal.icon_data, goal.emoji, 'h-8 w-8 shrink-0 rounded-lg object-cover');
-        const copy = element('span', 'min-w-0');
-        copy.append(element('strong', 'block truncate', goal.name), element('span', 'block text-xs opacity-90', `${goal.points}/${goal.target} points · ${goal.latest || 'No activity'}`));
+        const copy = element('span', 'inline-flex min-w-0 items-center gap-2');
+        copy.append(element('strong', 'truncate', goal.name), element('span', 'shrink-0 rounded-full bg-white/20 px-2', `${goal.points}/${goal.target}`));
+        link.title = `${goal.points}/${goal.target} points · ${goal.latest || 'No activity'}`;
         link.append(emoji, copy); section.append(link);
     });
 }
@@ -600,6 +601,7 @@ function renderDayState(state, {scroll = null} = {}) {
 function mutateDayState(mutator) {
     const state = activeDayState || captureCurrentDayState();
     if (!state) return false;
+    delete state.revision;
     mutator(state);
     return renderDayState(state, {scroll:{x:window.scrollX, y:window.scrollY}});
 }
@@ -623,24 +625,26 @@ function finishPageLoading() {
     document.body.removeAttribute('aria-busy');
 }
 
-async function fetchDayState(url, {fresh = false} = {}) {
+async function fetchDayState(url, {fresh = false, revision = null} = {}) {
     const key = dayStateKey(url);
     if (!fresh && dayStateCache.has(key)) return dayStateCache.get(key);
-    if (dayStateRequests.has(key)) return dayStateRequests.get(key);
+    const requestKey = `${key}:${revision || 'full'}`;
+    if (dayStateRequests.has(requestKey)) return dayStateRequests.get(requestKey);
     const request = fetch(url, {
             credentials: 'same-origin',
             cache: fresh ? 'no-store' : 'default',
-            headers: {Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Day-State': 'json'},
+            headers: {Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-Day-State': 'json', ...(revision ? {'X-Day-Revision': revision} : {})},
         })
         .then(async response => {
             if (isExpiredSessionResponse(response)) { showSessionExpired(); throw new Error('Your session has expired.'); }
             if (!response.ok) throw new Error('The day could not be loaded.');
             const state = await response.json();
+            if (state.unchanged) return null;
             dayStateCache.set(key, state);
             return state;
         })
-        .finally(() => dayStateRequests.delete(key));
-    dayStateRequests.set(key, request);
+        .finally(() => dayStateRequests.delete(requestKey));
+    dayStateRequests.set(requestKey, request);
     return request;
 }
 
@@ -672,7 +676,9 @@ async function refreshDayView({loading = true} = {}) {
     if (!document.querySelector('#daily-log-page-container')) return false;
     if (loading) beginPageLoading();
     try {
-        const state = await fetchDayState(window.location.href, {fresh:true});
+        const previousState = activeDayState;
+        const state = await fetchDayState(window.location.href, {fresh:true, revision:activeDayState?.revision});
+        if (!state || activeDayState !== previousState || backgroundSyncQueue.size > 0) return true;
         return renderDayState(state, {scroll:{x:window.scrollX, y:window.scrollY}});
     } finally {
         if (loading) finishPageLoading();
@@ -1045,6 +1051,12 @@ function openOverlay(name) {
 
 function closeOverlay(root, immediate = false) {
     if (!root) return;
+    if (root.dataset.overlay === 'composer') {
+        const form = root.querySelector('[data-composer-note-form]');
+        const state = activeDayState;
+        const item = state && (form?.dataset.pendingEventId ? findPendingBlockItem(state, form.dataset.pendingEventId) : findBlockItem(state, form?.action));
+        if (item) revealLogEntry(item, state);
+    }
     root.querySelector('[data-overlay-backdrop]')?.classList.replace('opacity-100', 'opacity-0');
     const panel = root.querySelector('[data-overlay-panel]');
     if (root.dataset.overlay === 'composer' || root.dataset.overlaySide === 'right') panel?.classList.add('translate-x-full');
@@ -2081,6 +2093,22 @@ function reconcileOptimisticBlock(id, body) {
         row.querySelector('article').classList.remove('ring-2', 'ring-indigo-300');
         row.dataset.editUrl = item.block.edit_url; row.dataset.hideUrl = item.block.hide_url; row.dataset.deleteUrl = item.block.delete_url; row.dataset.editUpdated = item.block.updated;
     }
+}
+
+function revealLogEntry(item, state) {
+    // Wait for the drawer transition and optimistic rendering to finish.
+    window.setTimeout(() => {
+        if (activeDayState !== state || document.querySelector('[data-overlay="composer"][data-open="true"]')) return;
+        const article = document.getElementById('block-' + item.block.id);
+        if (!article) return;
+        const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        article.scrollIntoView({behavior:reducedMotion ? 'instant' : 'smooth', block:'center'});
+        article.animate([
+            {boxShadow:'inset 0 0 0 3px transparent'},
+            {boxShadow:'inset 0 0 0 3px #818cf8', offset:0.5},
+            {boxShadow:'inset 0 0 0 3px transparent'},
+        ], {duration:800, iterations:3});
+    }, 350);
 }
 
 function saveComposerDraft(root, {close = true} = {}) {

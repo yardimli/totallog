@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Compact event articles: 4px on mobile and 8px on larger screens. */
+#timeline article.panel { padding: .25rem; scroll-margin-top: calc(var(--primary-navigation-height, 4rem) + 4rem); }
+@media (min-width: 640px) {
+    #timeline article.panel { padding: .5rem; }
+}
+
 @layer base {
     html {
         scrollbar-gutter: stable;
