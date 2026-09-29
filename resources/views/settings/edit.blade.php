@@ -14,7 +14,8 @@
                 <p class="mt-1 text-sm text-slate-500">These settings are saved to your account and follow you between devices.</p>
                 <div id="display-preference-fields" class="mt-5 grid gap-4 sm:grid-cols-2">
                     <div id="time-format-field"><label class="label" for="time-format">Time format</label><select id="time-format" class="input" name="time_format"><option value="24" @selected(auth()->user()->time_format !== '12')>24-hour (18:30)</option><option value="12" @selected(auth()->user()->time_format === '12')>AM / PM (6:30 PM)</option></select></div>
-                    <div id="week-start-field"><label class="label" for="week-start">Start of the week</label><select id="week-start" class="input" name="week_starts_on">@foreach(['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] as $dayNumber => $dayName)<option value="{{ $dayNumber }}" @selected((auth()->user()->week_starts_on ?? 1) === $dayNumber)>{{ $dayName }}</option>@endforeach</select></div>
+                    <div id="time-picker-field"><label class="label" for="time-picker">Time picker</label><select id="time-picker" class="input" name="time_picker"><option value="scroller" @selected((auth()->user()->time_picker ?? 'scroller') === 'scroller')>Horizontal scroller (default)</option><option value="wheel" @selected(auth()->user()->time_picker === 'wheel')>Original hour and minute wheels</option></select></div>
+                    <div id="week-start-field"><label class="label" for="week-start">Start of the week</label><select id="week-start" class="input" name="week_starts_on">@foreach(['Sunday','Monday'] as $dayNumber => $dayName)<option value="{{ $dayNumber }}" @selected((auth()->user()->week_starts_on ?? 1) === $dayNumber)>{{ $dayName }}</option>@endforeach</select></div>
                 </div>
             </section>
 

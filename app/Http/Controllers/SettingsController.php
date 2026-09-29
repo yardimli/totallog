@@ -38,7 +38,8 @@ class SettingsController extends Controller
         $data = $request->validate([
             'openrouter_api_key' => 'nullable|string|max:500',
             'time_format' => 'required|in:12,24',
-            'week_starts_on' => 'required|integer|between:0,6',
+            'week_starts_on' => 'required|integer|in:0,1',
+            'time_picker' => 'sometimes|required|in:scroller,wheel',
             'default_chat_model' => 'nullable|string|max:191',
         ]);
         $user = $request->user();
@@ -49,8 +50,9 @@ class SettingsController extends Controller
 
         $user->update([
             'time_format' => $data['time_format'],
+            'time_picker' => $data['time_picker'] ?? $user->time_picker ?? 'scroller',
             'week_starts_on' => $data['week_starts_on'],
-            'default_chat_model' => $data['default_chat_model'] ?: null,
+            'default_chat_model' => ($data['default_chat_model'] ?? '') ?: null,
         ]);
         if (($data['openrouter_api_key'] ?? '') !== '') {
             $user->update(['openrouter_api_key' => $data['openrouter_api_key']]);

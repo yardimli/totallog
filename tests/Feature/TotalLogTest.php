@@ -343,12 +343,14 @@ class TotalLogTest extends TestCase
 
         $this->actingAs($user)->patch(route('settings.update'), [
             'time_format' => '12',
+            'time_picker' => 'wheel',
             'week_starts_on' => 0,
             'default_chat_model' => 'test/structured-model',
         ])->assertRedirect();
 
         $user->refresh();
         $this->assertSame('12', $user->time_format);
+        $this->assertSame('wheel', $user->time_picker);
         $this->assertSame(0, $user->week_starts_on);
         $this->assertSame('test/structured-model', $user->default_chat_model);
 
@@ -373,6 +375,34 @@ class TotalLogTest extends TestCase
                 route('logs.show', '2026-08-21'),
                 route('logs.show', '2026-08-22'),
             ]);
+    }
+
+    public function test_time_picker_defaults_and_display_preference_validation(): void
+    {
+        $user = User::factory()->create()->fresh();
+        $this->assertSame('scroller', $user->time_picker);
+        $this->assertSame('24', $user->time_format);
+        $this->assertSame(1, $user->week_starts_on);
+        $this->actingAs($user)->get(route('settings.edit'))->assertOk()
+            ->assertSee('data-time-picker-style="scroller"', false)
+            ->assertSee('Horizontal scroller (default)')
+            ->assertSee('Original hour and minute wheels');
+        $this->patch(route('settings.update'), [
+            'time_format' => '24', 'time_picker' => 'invalid', 'week_starts_on' => 2,
+        ])->assertSessionHasErrors(['time_picker', 'week_starts_on']);
+        $this->patch(route('settings.update'), [
+            'time_format' => '12', 'time_picker' => 'wheel', 'week_starts_on' => 0,
+        ])->assertSessionHasNoErrors();
+        // Older clients may omit the picker preference.
+        $this->patch(route('settings.update'), [
+            'time_format' => '24', 'week_starts_on' => 1,
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('wheel', $user->fresh()->time_picker);
+        $this->get(route('settings.edit'))->assertSee('data-time-picker-style="wheel"', false);
+        $this->patch(route('settings.update'), [
+            'time_format' => '24', 'time_picker' => 'scroller', 'week_starts_on' => 1,
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('scroller', $user->fresh()->time_picker);
     }
 
     public function test_an_undecryptable_openrouter_key_does_not_break_settings_or_model_requests(): void

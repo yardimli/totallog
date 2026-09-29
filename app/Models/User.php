@@ -27,6 +27,7 @@ class User extends Authenticatable
         'password',
         'openrouter_api_key',
         'time_format',
+        'time_picker',
         'week_starts_on',
         'default_chat_model',
         'screensaver_enabled',

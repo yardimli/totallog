@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time scroller interaction check</title>
+<link rel="stylesheet" href="../resources/css/app.css">
+<style>
+body { background: #101525; color: white; font: 16px system-ui; padding: 30px; }
+main { max-width: 360px; margin: auto; }
+button { width: 100%; padding: 10px; border: 1px solid #475569; border-radius: 12px; background: #1e293b; color: white; font: bold 20px system-ui; }
+</style>
+<main>
+<h1>Time scroller</h1>
+<p>24-hour</p>
+<div id="picker"><button type="button"></button><input type="hidden" value="12:00"></div>
+<p>AM / PM</p>
+<div id="twelve"><button type="button"></button><input type="hidden" value="18:00"></div>
+<p id="result"></p>
+</main>
+<script type="module">
+import {initTimeScroller} from '../resources/js/time-scroller.mjs';
+const picker = document.querySelector('#picker');
+const input = picker.querySelector('input');
+initTimeScroller(picker, input, picker.querySelector('button'), value => value);
+const twelve = document.querySelector('#twelve');
+initTimeScroller(twelve, twelve.querySelector('input'), twelve.querySelector('button'), value => {
+    const [h, m] = value.split(':').map(Number);
+    return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h % 24 < 12 ? 'AM' : 'PM'}`;
+});
+const range = picker.querySelector('[type=range]');
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+let changes = 0;
+input.addEventListener('change', () => changes++);
+range.value = '900';
+range.dispatchEvent(new Event('input', {bubbles: true}));
+assert(input.value === '12:00', 'Drag must not save before release');
+range.dispatchEvent(new Event('change', {bubbles: true}));
+assert(input.value === '15:00' && range.min === '540' && range.max === '1260', 'Release centers a twelve-hour window');
+assert(changes === 1, 'Commit dispatches one change');
+range.dispatchEvent(new KeyboardEvent('keydown', {key: 'End'}));
+assert(input.value === '23:59' && range.min === '720' && range.max === '1440', 'End of day is bounded');
+range.dispatchEvent(new KeyboardEvent('keydown', {key: 'Home'}));
+assert(input.value === '00:00' && range.min === '0' && range.max === '720', 'Start of day is bounded');
+input.value = '12:00';
+input.dispatchEvent(new Event('change'));
+range.dispatchEvent(new WheelEvent('wheel', {deltaY: 100, cancelable: true}));
+await new Promise(resolve => setTimeout(resolve, 220));
+assert(input.value === '12:05' && range.min === '365' && range.max === '1085', 'Wheel recenters after idle');
+input.value = '12:00';
+input.dispatchEvent(new Event('change'));
+document.querySelector('#result').textContent = 'All interaction checks passed.';
+</script>
+</html>

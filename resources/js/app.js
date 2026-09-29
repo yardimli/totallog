@@ -1,4 +1,5 @@
 import './bootstrap';
+import { initTimeScroller } from './time-scroller.mjs';
 
 if (document.querySelector('[data-note-rich-editor]')) import('./notes');
 
@@ -1234,7 +1235,7 @@ const accountTimeFormat = document.body.dataset.timeFormat || '24';
 function formatClock(value) {
     const [hour, minute] = (value || '00:00').split(':').map(Number);
     if (accountTimeFormat === '24') return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-    return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
+    return `${hour % 12 || 12}:${String(minute).padStart(2, '0')} ${hour % 24 < 12 ? 'AM' : 'PM'}`;
 }
 
 function openTimePicker(root) {
@@ -1381,6 +1382,12 @@ function openTimePicker(root) {
 
 function initTimePicker(root) {
     const input = root.querySelector('[data-time-picker-input]'), button = root.querySelector('[data-time-picker-open]'); if (!input || !button) return;
+    if (root.dataset.timePickerInitialized) return;
+    root.dataset.timePickerInitialized = 'true';
+    if (document.body.dataset.timePickerStyle !== 'wheel') {
+        initTimeScroller(root, input, button, formatClock);
+        return;
+    }
     const update = () => { button.textContent = formatClock(input.value || '12:00'); }; button.addEventListener('click', () => openTimePicker(root)); input.addEventListener('change', update); update();
 }
 
