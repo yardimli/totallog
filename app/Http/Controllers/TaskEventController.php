@@ -23,7 +23,7 @@ class TaskEventController extends Controller
         abort_unless($task->is_active && $task->occursOn($dailyLog->log_date), 422, 'This event is not scheduled for this day.');
         $data = $request->validate([
             'value' => [empty($task->options) ? 'nullable' : 'required', 'nullable', 'string', 'max:100'],
-            'scheduled_time' => ['nullable', 'date_format:H:i'],
+            'scheduled_time' => ['nullable', \App\Support\DayTime::RULE],
         ]);
         if (! empty($task->options) && ! in_array($data['value'] ?? null, $task->options, true)) {
             abort(422, 'Choose a valid value.');
@@ -73,7 +73,7 @@ class TaskEventController extends Controller
         $data = $request->validate([
             'notes' => 'nullable|string|max:100000',
             'emoji' => 'nullable|string|max:32',
-            'occurred_at' => 'sometimes|required|date_format:H:i',
+            'occurred_at' => ['sometimes', 'required', \App\Support\DayTime::RULE],
         ]);
         $updates = ['content' => $data['notes'] ?? null];
         if (array_key_exists('emoji', $data)) {

@@ -106,8 +106,8 @@ class TaskController extends Controller
             'month_days_text' => 'nullable|string|max:200',
             'scheduled_times_text' => 'nullable|string|max:300',
             'scheduled_times' => 'nullable|array|max:24',
-            'scheduled_times.*' => 'date_format:H:i',
-            'visible_after' => 'nullable|date_format:H:i',
+            'scheduled_times.*' => [\App\Support\DayTime::RULE],
+            'visible_after' => ['nullable', \App\Support\DayTime::RULE],
             'daily_default_count' => 'nullable|integer|min:1|max:999',
         ]);
         $options = collect(preg_split('/[\r\n,]+/', $data['options_text'] ?? ''))->map(fn ($v) => trim($v))->filter()->unique()->values()->all();
@@ -122,7 +122,7 @@ class TaskController extends Controller
         if (in_array($data['recurrence_type'], ['weekly', 'monthly'], true) && empty($recurrenceDays)) {
             throw ValidationException::withMessages(['recurrence_type' => 'Choose at least one day for this recurrence.']);
         }
-        if ($scheduledTimes->contains(fn ($time) => ! preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $time))) {
+        if ($scheduledTimes->contains(fn ($time) => ! preg_match(\App\Support\DayTime::PATTERN, $time))) {
             throw ValidationException::withMessages(['scheduled_times_text' => 'Use 24-hour times such as 08:30 or 17:00.']);
         }
         $result = [

@@ -20,7 +20,7 @@ class LogBlockController extends Controller
             'type' => 'required|in:text',
             'content' => 'required|string|max:100000',
             'emoji' => 'nullable|string|max:32',
-            'occurred_at' => 'nullable|date_format:H:i',
+            'occurred_at' => ['nullable', \App\Support\DayTime::RULE],
         ]);
         $data['emoji'] = filled($data['emoji'] ?? null) ? $data['emoji'] : LogBlock::defaultEmojiForType($data['type']);
         $data['occurred_at'] = $dailyLog->log_date->copy()->setTimeFromTimeString($data['occurred_at'] ?? now()->format('H:i'));
@@ -43,7 +43,7 @@ class LogBlockController extends Controller
         $data = $request->validate([
             'content' => 'nullable|string|max:100000',
             'emoji' => 'nullable|string|max:32',
-            'occurred_at' => 'sometimes|required|date_format:H:i',
+            'occurred_at' => ['sometimes', 'required', \App\Support\DayTime::RULE],
         ]);
         if (isset($data['occurred_at'])) {
             $data['occurred_at'] = $block->dailyLog->log_date->copy()->setTimeFromTimeString($data['occurred_at']);

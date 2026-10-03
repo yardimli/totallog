@@ -2,15 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
-.time-scroller { margin-top: .5rem; padding: .5rem .75rem .625rem; border-radius: .75rem; background: #633b83; color: #e8d8f4; }
-.time-scroller input[type="range"] { display: block; appearance: none; width: 100%; height: 2rem; margin: 0; background: transparent; cursor: ew-resize; touch-action: pan-y; }
-.time-scroller input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: #b69ac9; }
-.time-scroller input[type="range"]::-moz-range-track { height: 6px; border-radius: 999px; background: #b69ac9; }
-.time-scroller input[type="range"]::-webkit-slider-thumb { appearance: none; width: 24px; height: 24px; margin-top: -9px; border: 0; border-radius: 50%; background: #deed77; }
-.time-scroller input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; border: 0; border-radius: 50%; background: #deed77; }
-.time-scroller input[type="range"]:focus-visible { outline: 2px solid #deed77; outline-offset: 3px; border-radius: 4px; }
-.time-scroller input[type="range"]:disabled { opacity: .45; cursor: default; }
-.time-scroller-labels { display: flex; justify-content: space-between; gap: 2px; font-size: clamp(.5rem, 2vw, .65rem); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The artwork represents 24 hours; the viewport always spans 12 hours. */
+.time-scroller { position: relative; height: 90px; margin-top: .5rem; overflow: hidden; border-radius: .75rem; background: #e2e8f0; color: #475569; cursor: grab; touch-action: pan-y; user-select: none; isolation: isolate; }
+.dark .time-scroller { background: #0f172a; color: #cbd5e1; }
+.time-scroller-strip { position: absolute; left: 0; top: 0; width: 200%; height: 100%; pointer-events: none; will-change: transform; }
+.time-scroller-artwork { height: 64px; background: url('../images/day-time-strip.jpg') center / 100% 100% no-repeat; }
+.time-scroller-ruler { position: relative; height: 26px; background: rgba(148,163,184,.12); }
+.time-scroller-tick { position: absolute; top: 0; padding-top: 7px; transform: translateX(-50%); font: 10px/16px ui-monospace, monospace; white-space: nowrap; }
+.time-scroller-tick::before { content: ''; position: absolute; left: 50%; top: 0; height: 5px; border-left: 1px solid currentColor; opacity: .55; }
+.time-scroller-cursor { position: absolute; left: 50%; top: 0; height: 65px; width: 2px; transform: translateX(-50%); background: #fff; box-shadow: 0 0 0 1px #0f172a80, 0 0 6px #0f172a80; pointer-events: none; }
+.time-scroller-cursor::before { content: ''; position: absolute; top: 0; left: -5px; width: 12px; height: 8px; background: #fff; clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.time-scroller.is-dragging { cursor: grabbing; }
+.time-scroller.is-settling .time-scroller-strip { transition: transform .16s ease-out; }
+.time-scroller:focus-visible { outline: 2px solid #6366f1; outline-offset: 3px; }
+.time-scroller[aria-disabled="true"] { opacity: .45; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .time-scroller.is-settling .time-scroller-strip { transition: none; } }
 
 /* Compact event articles: 4px on mobile and 8px on larger screens. */
 #timeline article.panel { padding: .25rem; scroll-margin-top: calc(var(--primary-navigation-height, 4rem) + 4rem); }

@@ -72,11 +72,12 @@ class DayLogController extends Controller
                 continue;
             }
             $occurredAt = $block->taskEvent?->occurred_at ?? $block->occurred_at ?? $block->created_at;
+            $clock = \App\Support\DayTime::clock($occurredAt, $day);
             $timelineItems->push([
                 'kind' => 'block',
-                'time' => $occurredAt->format('H:i'),
-                'minute' => ($occurredAt->hour * 60) + $occurredAt->minute,
-                'sort' => $occurredAt->format('H:i:s').'-1-'.$block->id,
+                'time' => $clock,
+                'minute' => $clock === '24:00' ? 1440 : ($occurredAt->hour * 60) + $occurredAt->minute,
+                'sort' => $clock.':'.$occurredAt->format('s').'-1-'.$block->id,
                 'block' => $block,
                 'is_hidden' => $block->is_hidden,
             ]);

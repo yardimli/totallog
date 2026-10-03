@@ -1243,7 +1243,7 @@ function openTimePicker(root) {
     const anchor = root.querySelector('[data-time-picker-open]');
     const originalValue = input.value || '12:00';
     const [initialHour, initialMinute] = (input.value || '12:00').split(':').map(Number);
-    let hour = initialHour, minute = Math.round(initialMinute / 5) * 5;
+    let hour = initialHour % 24, minute = Math.round(initialMinute / 5) * 5;
     if (minute === 60) { minute = 0; hour = (hour + 1) % 24; }
     let period = hour >= 12 ? 'PM' : 'AM';
     let displayHour = hour % 12 || 12;
