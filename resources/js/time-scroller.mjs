@@ -1,7 +1,8 @@
 export const clampTime = minutes => Math.max(0, Math.min(1440, minutes));
 export const snapTime = minutes => clampTime(Math.round(minutes / 5) * 5);
 export const clockValue = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-export const stripOffset = minutes => 25 - clampTime(minutes) / 1440 * 100;
+export const stripOffset = minutes => -clampTime(minutes) / 1440 * 100;
+export const minutesForPixels = (pixels, stripWidth) => stripWidth > 0 ? pixels * 1440 / stripWidth : 0;
 
 export function initTimeScroller(root, input, button, formatClock) {
     const viewport = document.createElement('div');
@@ -83,9 +84,9 @@ export function initTimeScroller(root, input, button, formatClock) {
     });
     viewport.addEventListener('pointermove', event => {
         if (pointer !== event.pointerId || input.disabled) return;
-        const width = viewport.getBoundingClientRect().width;
+        const width = strip.getBoundingClientRect().width;
         if (!width || (event.clientX === originX && !dirty)) return;
-        select(originTime - (event.clientX - originX) * 720 / width);
+        select(originTime - minutesForPixels(event.clientX - originX, width));
     });
     const release = event => {
         if (pointer !== event.pointerId) return;
@@ -105,9 +106,10 @@ export function initTimeScroller(root, input, button, formatClock) {
         event.preventDefault();
         event.stopPropagation();
         const width = viewport.getBoundingClientRect().width || 360;
+        const stripWidth = strip.getBoundingClientRect().width;
         const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? width : 1;
         const mouseNotch = event.deltaMode === 1 || (!event.deltaX && Math.abs(delta) >= 100 && Number.isInteger(delta));
-        select(selected + (mouseNotch ? Math.sign(delta) * 5 : delta * scale * 144 / width));
+        select(selected + (mouseNotch ? Math.sign(delta) * 5 : minutesForPixels(delta * scale * 0.2, stripWidth)));
         clearTimeout(timer);
         timer = setTimeout(finish, 160);
     }, {passive: false});

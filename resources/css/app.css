@@ -2,11 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-/* The artwork represents 24 hours; the viewport always spans 12 hours. */
+/* Preserve the approved 1600:90 artwork ratio at the existing image height. */
 .time-scroller { position: relative; height: 90px; margin-top: .5rem; overflow: hidden; border-radius: .75rem; background: #e2e8f0; color: #475569; cursor: grab; touch-action: pan-y; user-select: none; isolation: isolate; }
 .dark .time-scroller { background: #0f172a; color: #cbd5e1; }
-.time-scroller-strip { position: absolute; left: 0; top: 0; width: 200%; height: 100%; pointer-events: none; will-change: transform; }
-.time-scroller-artwork { height: 64px; background: url('../images/day-time-strip.jpg') center / 100% 100% no-repeat; }
+.time-scroller-strip { position: absolute; left: 50%; top: 0; width: calc(64px * 1600 / 90); height: 100%; pointer-events: none; will-change: transform; }
+.time-scroller-artwork { height: 64px; background: url('../images/day-time-strip-noon-clock.jpg') center / 100% 100% no-repeat; }
 .time-scroller-ruler { position: relative; height: 26px; background: rgba(148,163,184,.12); }
 .time-scroller-tick { position: absolute; top: 0; padding-top: 7px; transform: translateX(-50%); font: 10px/16px ui-monospace, monospace; white-space: nowrap; }
 .time-scroller-tick::before { content: ''; position: absolute; left: 50%; top: 0; height: 5px; border-left: 1px solid currentColor; opacity: .55; }

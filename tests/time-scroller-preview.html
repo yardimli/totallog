@@ -42,9 +42,12 @@ try {
     key('ArrowRight');
     assert(input.value === '12:05' && changes === 1, 'Keyboard commits exactly one five-minute step');
     key('End');
-    assert(input.value === '24:00' && strip.style.transform === 'translateX(-75%)', 'End leaves half the viewport blank');
+    assert(input.value === '24:00' && strip.style.transform === 'translateX(-100%)', 'End leaves half the viewport blank');
     key('Home');
-    assert(input.value === '00:00' && strip.style.transform === 'translateX(25%)', 'Start leaves half the viewport blank');
+    assert(input.value === '00:00' && strip.style.transform === 'translateX(0%)', 'Start leaves half the viewport blank');
+    const art = picker.querySelector('.time-scroller-artwork').getBoundingClientRect();
+    assert(Math.abs(art.width / art.height - 1600 / 90) < 0.01, 'Artwork retains its natural proportions');
+    assert(slider.getBoundingClientRect().height === 90 && art.height === 64, 'UI height remains unchanged');
     input.value = '12:03';
     input.dispatchEvent(new Event('change'));
     slider.dispatchEvent(new Event('blur'));
