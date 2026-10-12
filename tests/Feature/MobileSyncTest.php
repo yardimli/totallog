@@ -47,6 +47,41 @@ class MobileSyncTest extends TestCase
         $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
+    public function test_snapshot_revalidation_skips_body_but_detects_changes_and_cascade_deletions(): void
+    {
+        $user = $this->signIn();
+        $log = $user->dailyLogs()->create(['log_date' => '2026-09-10']);
+        $block = $log->blocks()->create(['type' => 'text', 'content' => 'original']);
+        $first = $this->getJson('/api/mobile/snapshot')->assertOk()->assertJsonStructure(['server_time']);
+        $etag = $first->headers->get('ETag');
+        $this->assertNotEmpty($etag);
+        $this->travel(1)->minutes();
+        $unchanged = $this->getJson('/api/mobile/snapshot', ['If-None-Match' => $etag])->assertStatus(304);
+        $this->assertSame('', $unchanged->getContent());
+        $this->assertSame($etag, $unchanged->headers->get('ETag'));
+
+        // Even writes that bypass observers and timestamps must invalidate the body.
+        \Illuminate\Support\Facades\DB::table('log_blocks')->where('id', $block->id)->update(['content' => 'changed']);
+        $changed = $this->getJson('/api/mobile/snapshot', ['If-None-Match' => $etag])
+            ->assertOk()->assertJsonPath('blocks.0.content', 'changed');
+        $this->assertNotSame($etag, $changed->headers->get('ETag'));
+        $etag = $changed->headers->get('ETag');
+        $log->delete();
+        $this->getJson('/api/mobile/snapshot', ['If-None-Match' => $etag])
+            ->assertOk()->assertJsonCount(0, 'blocks')->assertJsonCount(0, 'logs');
+    }
+
+    public function test_snapshot_validator_is_account_specific_and_still_requires_authentication(): void
+    {
+        $this->signIn();
+        $etag = $this->getJson('/api/mobile/snapshot')->assertOk()->headers->get('ETag');
+        $other = $this->signIn();
+        $this->getJson('/api/mobile/snapshot', ['If-None-Match' => $etag])
+            ->assertOk()->assertJsonPath('user.id', $other->id);
+        Sanctum::actingAs($other, ['sensors']);
+        $this->getJson('/api/mobile/snapshot', ['If-None-Match' => $etag])->assertForbidden();
+    }
+
     public function test_create_retry_is_idempotent_and_snapshot_excludes_notes_and_other_accounts(): void
     {
         $user = $this->signIn();

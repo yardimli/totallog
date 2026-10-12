@@ -56,20 +56,27 @@ enum Keychain {
         try JSONEncoder().encode(disk).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
     func call(_ path: String, data: Record? = nil) async throws -> Record {
+        let (json, _) = try await request(path, data: data)
+        return json
+    }
+    private func request(_ path: String, data: Record? = nil, etag: String? = nil) async throws -> (Record, String?) {
         guard let url = URL(string: disk.server + "/api/mobile/" + path) else { throw AppFailure(message: "Invalid server address.") }
         var req = URLRequest(url: url); req.timeoutInterval = 90
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if let etag { req.setValue(etag, forHTTPHeaderField: "If-None-Match") }
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         if let data { req.httpMethod = "POST"; req.setValue("application/json", forHTTPHeaderField: "Content-Type"); req.httpBody = try JSONEncoder().encode(data) }
         let (bytes, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw AppFailure(message: "Invalid server response.") }
+        if http.statusCode == 304, etag != nil { return ([:], etag) }
         let json = (try? JSONDecoder().decode(Record.self, from: bytes)) ?? [:]
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401 { throw AppFailure(message: "Your sign-in expired. Your offline edits are safe; sign in again to sync.") }
             throw AppFailure(message: json.text("message").isEmpty ? "Server returned HTTP \(http.statusCode)." : json.text("message"))
         }
         guard !json.isEmpty else { throw AppFailure(message: "The server did not return mobile API JSON. Check the address and server deployment.") }
-        return json
+        return (json, http.value(forHTTPHeaderField: "ETag"))
     }
     func publicAccountAction(server: String, path: String, data: Record) async throws -> Record {
         let address = server.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -188,12 +195,15 @@ enum Keychain {
             var reply: Record = [:]
             if !batch.isEmpty { reply = try await call("sync", data: ["operations": .array(batch.map { .object($0.wire) })]) }
             let started = Date()
-            let snapshot = try await call("snapshot")
+            let cachedETag = disk.snapshot.text("schema_version") == "1" && disk.snapshot["user"]?.object.recordID == disk.userID ? disk.snapshotETag : nil
+            let (download, etag) = try await request("snapshot", etag: cachedETag)
+            let snapshot = download.isEmpty ? disk.snapshot : download
             guard snapshot.text("schema_version") == "1", snapshot["user"]?.object.recordID == disk.userID else { throw AppFailure(message: "Server snapshot is incompatible or belongs to another account.") }
             let before = disk
             do {
                 SyncMerge.apply(to: &disk, results: reply["results"]?.array ?? [], submitted: batch, snapshot: snapshot)
-            if let serverTime = Dates.parse(snapshot.text("server_time")) { disk.clockOffset = serverTime.timeIntervalSince(started.addingTimeInterval(Date().timeIntervalSince(started) / 2)) }
+            disk.snapshotETag = etag
+            if let serverTime = Dates.parse(download.text("server_time")) { disk.clockOffset = serverTime.timeIntervalSince(started.addingTimeInterval(Date().timeIntervalSince(started) / 2)) }
             disk.lastSync = Date(); try persist()
             } catch { disk = before; throw error }
         } catch { self.error = error.localizedDescription }

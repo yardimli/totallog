@@ -43,6 +43,7 @@ struct LoginView: View {
 }
 struct RootView: View {
     @EnvironmentObject var store: Store
+    @Environment(\.scenePhase) private var phase
     @State private var lastInteraction = Date()
     @State private var screensaver = false
     private let idleTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
@@ -69,7 +70,14 @@ struct RootView: View {
             NativeScreensaver(style: store.user.text("screensaver_style"), speed: Double(store.user.text("screensaver_speed")) ?? 1, message: store.user.text("screensaver_message"), logo: store.disk.snapshot.text("screensaver_logo"))
                 .onTapGesture { lastInteraction = Date(); screensaver = false }
         }
-        .task { while !Task.isCancelled { await store.sync(); try? await Task.sleep(for: .seconds(45)) } }
+        .task(id: phase) {
+            guard phase == .active else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(300)) } catch { return }
+                guard !Task.isCancelled else { return }
+                await store.sync()
+            }
+        }
     }
 }
 struct RecordIcon: View {

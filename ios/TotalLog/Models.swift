@@ -49,6 +49,7 @@ struct DiskState: Codable {
     var server: String = "https://total-log.com"
     var userID: String = ""
     var snapshot: Record = [:]
+    var snapshotETag: String?
     var operations: [Operation] = []
     var aliases: [String: String] = [:]
     var messages: [String] = []

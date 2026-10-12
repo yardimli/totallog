@@ -43,9 +43,9 @@ class SyncController extends Controller
         $progress->syncForUser($user);
 
         // Complete account snapshot: missing records are deletions, including DB cascades.
-        return response()->json([
+        $snapshot = [
             'screensaver_logo' => $user->screensaver_logo_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($user->screensaver_logo_path) ? 'data:image/png;base64,'.base64_encode(\Illuminate\Support\Facades\Storage::disk('public')->get($user->screensaver_logo_path)) : null,
-            'schema_version' => 1, 'server_time' => now()->utc()->toISOString(),
+            'schema_version' => 1,
             'user' => $user->fresh()->only('id', 'name', 'email', 'time_format', 'week_starts_on', 'default_chat_model', 'screensaver_enabled', 'screensaver_style', 'screensaver_wait_minutes', 'screensaver_speed', 'screensaver_message', 'is_admin'),
             'tasks' => $user->taskDefinitions()->orderBy('position')->orderBy('id')->get(),
             // Calendar dates are not instants: preserve their database day across timezones.
@@ -56,6 +56,18 @@ class SyncController extends Controller
             'chat_proposals' => \App\Models\ChatActionProposal::where('user_id', $user->id)->where('status', 'pending')->where('expires_at', '>', now())->get(['id', 'daily_log_id', 'summary', 'expires_at']),
             'api_calls' => ApiCall::where('user_id', $user->id)->latest()->get()->map(fn ($c) => $c->only('id', 'operation', 'model', 'total_tokens', 'cost', 'created_at', 'status_code', 'error')),
             'revisions' => DB::table('mobile_revisions')->where('user_id', $user->id)->get(['entity', 'entity_id', 'edited_at', 'deleted']),
-        ])->header('Cache-Control', 'no-store');
+        ];
+
+        // Hash the complete representation so nested changes and cascade deletions
+        // invalidate it too. The request clock must not invalidate unchanged data.
+        $response = response()->json($snapshot)->header('Cache-Control', 'private, no-cache');
+        $response->setEtag(hash('sha256', $response->getContent()), true);
+        if ($response->isNotModified($request)) {
+            return $response;
+        }
+
+        $snapshot['server_time'] = now()->utc()->toISOString();
+
+        return $response->setData($snapshot);
     }
 }

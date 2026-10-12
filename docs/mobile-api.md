@@ -26,6 +26,16 @@ instants, including edit timestamps, remain ISO 8601 timestamps.
 - `POST /logout`: revokes the current token.
 - `GET /snapshot`: complete account snapshot with `schema_version: 1`, `server_time`, `user`, `tasks`, `goals` with sources/entries, `logs`, `blocks` with event/sensor/attachment details, redacted `sensors`, `api_calls`, `chat_proposals`, `screensaver_logo` and `revisions`. No Notes workspace records or authentication secrets are serialized.
 
+Snapshots include a weak `ETag` computed from account data, excluding the request's
+`server_time`. Save it atomically with the snapshot and send `If-None-Match` on
+subsequent requests. HTTP `304` has no body: reuse the saved snapshot and retain
+the previous clock offset. Upload receipts can still be applied against this
+revalidated snapshot. Only send a validator when its account's snapshot is locally
+available. Requests without a validator continue to receive the complete JSON.
+Responses are private and require revalidation; shared caches must not store them.
+This saves transfer bandwidth, but the server still assembles the snapshot to
+detect all changes, including nested data and cascade deletions.
+
 ## Mutation envelope
 
 `POST /sync`:
