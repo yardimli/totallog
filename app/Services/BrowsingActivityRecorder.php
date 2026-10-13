@@ -25,6 +25,9 @@ class BrowsingActivityRecorder
         }
 
         return DB::transaction(function () use ($sensor, $domain, $clientId, $observed) {
+            // Lock an existing row, including when no activity/hour block exists yet.
+            // Different clients and paired sensors share the same account's hour.
+            User::whereKey($sensor->user_id)->lockForUpdate()->firstOrFail();
             $this->finalizeStale($sensor->user, $observed);
             $active = BrowsingActivity::where('user_id', $sensor->user_id)
                 ->where('client_id', $clientId)
@@ -38,12 +41,18 @@ class BrowsingActivityRecorder
                 && $active->started_at->copy()->startOfHour()->equalTo($hourStart);
             $gap = $active ? $active->last_seen_at->diffInSeconds($observed, false) : null;
 
+            // Network requests can arrive out of order. Never rewind the live session.
+            if ($active && $gap < 0) {
+                return $active;
+            }
+
             if ($active && $gap >= 0 && $gap <= self::INACTIVITY_SECONDS && $sameHour && $active->domain === $domain) {
                 $active->update([
                     'last_seen_at' => $observed,
                     'duration_seconds' => max($active->duration_seconds, $active->started_at->diffInSeconds($observed)),
                 ]);
-                $this->refreshBlock($active->logBlock);
+                $block = $this->hourBlock($active->dailyLog, $hourStart, $observed);
+                $this->refreshBlock($block);
                 $sensor->update(['last_checked_at' => now(), 'last_error' => null]);
 
                 return $active->fresh();
@@ -78,15 +87,31 @@ class BrowsingActivityRecorder
     public function finalizeStale(User $user, ?Carbon $at = null): void
     {
         $at ??= now();
-        $stale = BrowsingActivity::where('user_id', $user->id)
-            ->whereNull('ended_at')
-            ->where('last_seen_at', '<=', $at->copy()->subSeconds(self::INACTIVITY_SECONDS))
-            ->lockForUpdate()
-            ->get();
+        DB::transaction(function () use ($user, $at) {
+            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $stale = BrowsingActivity::where('user_id', $user->id)
+                ->whereNull('ended_at')
+                ->where('last_seen_at', '<=', $at->copy()->subSeconds(self::INACTIVITY_SECONDS))
+                ->lockForUpdate()
+                ->get();
 
-        foreach ($stale as $activity) {
-            $this->finish($activity, $activity->last_seen_at);
-        }
+            foreach ($stale as $activity) {
+                $this->finish($activity, $activity->last_seen_at);
+            }
+        });
+    }
+
+    public function repairForLog(DailyLog $log): void
+    {
+        DB::transaction(function () use ($log) {
+            User::whereKey($log->user_id)->lockForUpdate()->firstOrFail();
+            $groups = $log->browsingActivities()->orderBy('started_at')->get()
+                ->groupBy(fn (BrowsingActivity $activity) => $activity->started_at->format('Y-m-d H'));
+            foreach ($groups as $activities) {
+                $observed = $activities->first()->started_at;
+                $this->hourBlock($log, $observed->copy()->startOfHour(), $observed);
+            }
+        });
     }
 
     private function finish(BrowsingActivity $activity, Carbon $endedAt): void

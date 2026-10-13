@@ -530,6 +530,77 @@ class SensorTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_browser_heartbeat_repairs_duplicate_hour_blocks_without_losing_activity(): void
+    {
+        Carbon::setTestNow('2026-10-13 04:25:00');
+        $user = User::factory()->create();
+        $sensor = Sensor::create(['user_id' => $user->id, 'type' => Sensor::BROWSER, 'enabled' => true]);
+        $log = $user->dailyLogs()->create(['log_date' => '2026-10-13']);
+        foreach (['04:21:00', '04:21:20', '04:24:00'] as $index => $time) {
+            $block = $log->blocks()->create([
+                'type' => 'sensor_browser', 'occurred_at' => '2026-10-13 '.$time,
+                'position' => $index, 'metadata' => ['hour_start' => '2026-10-13T04:00:00+08:00'],
+            ]);
+            BrowsingActivity::create([
+                'user_id' => $user->id, 'daily_log_id' => $log->id, 'log_block_id' => $block->id,
+                'domain' => 'example.com', 'client_id' => 'browser',
+                'started_at' => '2026-10-13 '.$time, 'last_seen_at' => '2026-10-13 '.$time,
+                'ended_at' => $index < 2 ? '2026-10-13 '.$time : null, 'duration_seconds' => 0,
+            ]);
+        }
+        app(\App\Services\BrowsingActivityRecorder::class)->record($sensor, 'https://example.com', 'browser', now()->toIso8601String());
+        $this->assertDatabaseCount('log_blocks', 1);
+        $this->assertDatabaseCount('browsing_activities', 3);
+        $this->assertSame(1, BrowsingActivity::distinct()->count('log_block_id'));
+        $this->assertSame('Browsing · 1 domain · 1 min', $log->blocks()->first()->content);
+        Carbon::setTestNow();
+    }
+
+    public function test_delayed_browser_heartbeat_does_not_close_or_duplicate_the_active_session(): void
+    {
+        Carbon::setTestNow('2026-10-13 04:25:00');
+        $user = User::factory()->create();
+        $sensor = Sensor::create(['user_id' => $user->id, 'type' => Sensor::BROWSER, 'enabled' => true]);
+        $recorder = app(\App\Services\BrowsingActivityRecorder::class);
+        $first = $recorder->record($sensor, 'https://example.com', 'browser', now()->toIso8601String());
+        $recorder->record($sensor, 'https://delayed.example.com', 'browser', now()->subMinute()->toIso8601String());
+        $this->assertDatabaseCount('browsing_activities', 1);
+        $this->assertNull($first->fresh()->ended_at);
+        Carbon::setTestNow();
+    }
+
+    public function test_viewing_a_day_regroups_existing_browser_rows_and_preserves_other_hours_and_accounts(): void
+    {
+        Carbon::setTestNow('2026-10-13 12:00:00');
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+        $log = $user->dailyLogs()->create(['log_date' => '2026-10-12']);
+        $otherLog = $other->dailyLogs()->create(['log_date' => '2026-10-12']);
+        foreach ([$log, $otherLog] as $day) {
+            foreach (['04:21:00', '04:22:00', '05:01:00'] as $index => $time) {
+                $block = $day->blocks()->create([
+                    'type' => 'sensor_browser', 'occurred_at' => '2026-10-12 '.$time, 'position' => $index,
+                ]);
+                BrowsingActivity::create([
+                    'user_id' => $day->user_id, 'daily_log_id' => $day->id, 'log_block_id' => $block->id,
+                    'domain' => 'example.com', 'client_id' => 'browser',
+                    'started_at' => '2026-10-12 '.$time,
+                    'last_seen_at' => Carbon::parse('2026-10-12 '.$time)->addMinute(),
+                    'ended_at' => Carbon::parse('2026-10-12 '.$time)->addMinute(), 'duration_seconds' => 60,
+                ]);
+            }
+        }
+        $this->actingAs($user)->get('/logs/2026-10-12')->assertOk()->assertSee('Browsing · 1 domain · 2 min');
+        $this->assertSame(2, $log->blocks()->count());
+        $this->assertSame(3, $otherLog->blocks()->count());
+        $this->assertDatabaseCount('browsing_activities', 6);
+        $this->assertSame(180, (int) $log->browsingActivities()->sum('duration_seconds'));
+        $ids = $log->blocks()->pluck('id')->all();
+        $this->get('/logs/2026-10-12')->assertOk();
+        $this->assertSame($ids, $log->blocks()->pluck('id')->all());
+        Carbon::setTestNow();
+    }
+
     public function test_browser_sensor_api_rejects_unknown_keys_and_extension_bundle_is_present(): void
     {
         $this->withHeader('X-TotalLog-Key', str_repeat('x', 64))->postJson(route('api.sensors.browser.activity'), [

@@ -42,6 +42,7 @@ class DayLogController extends Controller
         if (! $request->user()->is_guest) {
             $this->githubSensor->sync($request->user(), $log, $day);
             $this->browsingRecorder->finalizeStale($request->user());
+            $this->browsingRecorder->repairForLog($log);
             $this->desktopRecorder->finalizeStale($request->user());
             $this->goalProgress->syncForUser($request->user());
         }
