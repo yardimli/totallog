@@ -3,6 +3,7 @@ const HEARTBEAT_ALARM = 'totallog-browsing-heartbeat';
 const MOBILE_HISTORY_ALARM = 'totallog-mobile-history';
 const DEBUG_MESSAGE_LIMIT = 1000;
 let debugWriteQueue = Promise.resolve();
+let browsingRequestRunning = false;
 
 function debugLog(level, event, details = {}) {
   const entry = {at: new Date().toISOString(), level, event, details};
@@ -71,13 +72,17 @@ async function checkDesktopApp() {
 
 async function activeWebTab() {
   if (await chrome.idle.queryState(180) !== 'active') return null;
+  const window = await chrome.windows.getLastFocused();
+  if (!window.focused || window.state === 'minimized') return null;
   const [tab] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
-  if (!tab?.url) return null;
+  if (!tab?.url || tab.discarded || tab.windowId !== window.id) return null;
   const url = new URL(tab.url);
   return ['http:', 'https:'].includes(url.protocol) ? tab : null;
 }
 
 async function sendActiveBrowsing() {
+  if (browsingRequestRunning) return;
+  browsingRequestRunning = true;
   try {
     const config = await settings();
     if (!await checkDesktopApp()) return;
@@ -92,10 +97,13 @@ async function sendActiveBrowsing() {
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.message || `Total Log returned ${response.status}.`);
+    if (body.skipped) return;
     await chrome.storage.local.set({lastSentAt: new Date().toISOString(), lastDomain: body.domain || browsingUrl.hostname, lastLogDate: body.log_date || null});
     await setConnectionStatus('connected');
   } catch (error) {
     await setConnectionStatus('error', error.message || String(error));
+  } finally {
+    browsingRequestRunning = false;
   }
 }
 

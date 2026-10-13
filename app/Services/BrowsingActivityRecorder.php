@@ -49,7 +49,7 @@ class BrowsingActivityRecorder
             if ($active && $gap >= 0 && $gap <= self::INACTIVITY_SECONDS && $sameHour && $active->domain === $domain) {
                 $active->update([
                     'last_seen_at' => $observed,
-                    'duration_seconds' => max($active->duration_seconds, $active->started_at->diffInSeconds($observed)),
+                    'duration_seconds' => $active->started_at->diffInSeconds($observed),
                 ]);
                 $block = $this->hourBlock($active->dailyLog, $hourStart, $observed);
                 $this->refreshBlock($block);
@@ -116,13 +116,16 @@ class BrowsingActivityRecorder
 
     private function finish(BrowsingActivity $activity, Carbon $endedAt): void
     {
-        if ($endedAt->lessThan($activity->started_at)) {
-            $endedAt = $activity->last_seen_at;
-        }
+        // A heartbeat session belongs to one hour. Never manufacture hours of
+        // activity when an old record or an hour boundary is inconsistent.
+        $boundary = $activity->started_at->copy()->startOfHour()->addHour();
+        $endedAt = $endedAt->copy()->min($boundary)
+            ->min($activity->last_seen_at->copy()->addSeconds(self::INACTIVITY_SECONDS))
+            ->max($activity->started_at);
         $activity->update([
-            'last_seen_at' => $endedAt->greaterThan($activity->last_seen_at) ? $endedAt : $activity->last_seen_at,
+            'last_seen_at' => $endedAt->copy()->max($activity->last_seen_at)->min($boundary),
             'ended_at' => $endedAt,
-            'duration_seconds' => max($activity->duration_seconds, $activity->started_at->diffInSeconds($endedAt)),
+            'duration_seconds' => $activity->started_at->diffInSeconds($endedAt),
         ]);
         $this->refreshBlock($activity->logBlock);
     }

@@ -2,16 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import './styles.css';
-
-type ActivitySnapshot = {
-  application: string;
-  executable: string;
-  window_title: string;
-  process_id: number;
-  idle_seconds: number;
-  captured_at_unix_ms: number;
-  supported: boolean;
-};
+import { trackedSeconds, type ActivitySnapshot } from './activity-tracking';
 
 type KindleBook = {
   title: string;
@@ -31,6 +22,14 @@ type ActivitySlice = {
   duration_seconds: number;
 };
 
+type PendingBatch = {
+  app_url: string;
+  pairing_key: string;
+  client_id: string;
+  batch_id: string;
+  activities: ReturnType<typeof aggregatePending>;
+};
+
 const platformBadge = document.querySelector<HTMLElement>('#platform-badge')!;
 const list = document.querySelector<HTMLOListElement>('#activity-list')!;
 const appUrl = document.querySelector<HTMLInputElement>('#app-url')!;
@@ -47,12 +46,15 @@ const kindleStatus = document.querySelector<HTMLElement>('#kindle-status')!;
 const clientId = localStorage.getItem('totalLogDesktop.clientId') || crypto.randomUUID().replaceAll('-', '');
 const HISTORY_KEY = 'totalLogDesktop.activityHistory';
 const PENDING_KEY = 'totalLogDesktop.pendingActivity';
+const OUTBOX_KEY = 'totalLogDesktop.activityOutbox';
 const LAST_BATCH_KEY = 'totalLogDesktop.lastActivityBatchAt';
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const HOSTED_URL = 'https://captainslog.playground.computer/';
 const LOCALHOST_URL = 'http://127.0.0.1:8016/';
 let activityHistory = readSlices(HISTORY_KEY);
-let pendingActivity = readSlices(PENDING_KEY);
+const savedOutbox = readOutbox();
+let pendingActivity: ActivitySlice[] = savedOutbox.pending;
+let pendingBatch: PendingBatch | null = savedOutbox.batch;
 let previousSnapshot: ActivitySnapshot | null = null;
 let activityUploadRunning = false;
 let lastBatchAt = Number(localStorage.getItem(LAST_BATCH_KEY)) || Date.now();
@@ -167,6 +169,12 @@ function readSlices(key: string): ActivitySlice[] {
   }
 }
 
+function readOutbox(): {pending: ActivitySlice[]; batch: PendingBatch | null} {
+  const saved = localStorage.getItem(OUTBOX_KEY);
+  // Fail visibly on damaged outbox data instead of silently dropping queued time.
+  return saved ? JSON.parse(saved) : {pending: readSlices(PENDING_KEY), batch: null};
+}
+
 function hourKey(timestamp: number): string {
   const date = new Date(timestamp);
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
@@ -190,29 +198,24 @@ function saveActivity() {
   const oldestPending = Date.now() - (7 * 24 * 60 * 60 * 1000);
   pendingActivity = pendingActivity.filter(item => item.ended_at_ms >= oldestPending);
   localStorage.setItem(HISTORY_KEY, JSON.stringify(activityHistory));
-  localStorage.setItem(PENDING_KEY, JSON.stringify(pendingActivity));
-}
-
-function tracked(snapshot: ActivitySnapshot | null): snapshot is ActivitySnapshot {
-  return Boolean(snapshot?.supported && snapshot.process_id && snapshot.idle_seconds < 180 && snapshot.application
-    && snapshot.application.toLowerCase() !== 'total-log-desktop');
+  // A single write keeps the immutable upload and new observations crash-consistent.
+  localStorage.setItem(OUTBOX_KEY, JSON.stringify({pending: pendingActivity, batch: pendingBatch}));
+  localStorage.removeItem(PENDING_KEY);
 }
 
 function collectActivity(snapshot: ActivitySnapshot) {
-  if (tracked(previousSnapshot)) {
-    const elapsed = Math.round((snapshot.captured_at_unix_ms - previousSnapshot.captured_at_unix_ms) / 1000);
-    if (elapsed > 0 && elapsed <= 10) {
-      const slice: ActivitySlice = {
-        application: previousSnapshot.application,
-        process_name: previousSnapshot.executable.split(/[\\/]/).at(-1) || previousSnapshot.application,
-        started_at_ms: previousSnapshot.captured_at_unix_ms,
-        ended_at_ms: snapshot.captured_at_unix_ms,
-        duration_seconds: elapsed,
-      };
-      appendSlice(activityHistory, slice);
-      appendSlice(pendingActivity, slice);
-      saveActivity();
-    }
+  const elapsed = trackedSeconds(previousSnapshot, snapshot);
+  if (previousSnapshot && elapsed > 0) {
+    const slice: ActivitySlice = {
+      application: previousSnapshot.application,
+      process_name: previousSnapshot.executable.split(/[\\/]/).at(-1) || previousSnapshot.application,
+      started_at_ms: previousSnapshot.captured_at_unix_ms,
+      ended_at_ms: snapshot.captured_at_unix_ms,
+      duration_seconds: elapsed,
+    };
+    appendSlice(activityHistory, slice);
+    appendSlice(pendingActivity, slice);
+    saveActivity();
   }
   previousSnapshot = snapshot;
   renderActivityList();
@@ -288,21 +291,28 @@ async function uploadActivityBatch() {
   if (activityUploadRunning || localStorage.getItem('totalLogDesktop.syncEnabled') !== 'true') return;
   lastBatchAt = Date.now();
   localStorage.setItem(LAST_BATCH_KEY, String(lastBatchAt));
-  if (!pendingActivity.length) return;
+  if (!pendingBatch && !pendingActivity.length) return;
   activityUploadRunning = true;
-  const sending = pendingActivity;
-  pendingActivity = [];
-  saveActivity();
   try {
-    const activities = aggregatePending(sending);
-    await invoke('send_activity_batch', {payload: {
-      app_url: normalizedBaseUrl().toString(), pairing_key: pairingKey.value, client_id: clientId, activities,
-    }});
+    if (!pendingBatch) {
+      pendingBatch = {
+        app_url: normalizedBaseUrl().toString(), pairing_key: pairingKey.value, client_id: clientId,
+        batch_id: crypto.randomUUID(), activities: aggregatePending(pendingActivity),
+      };
+      pendingActivity = [];
+    }
+    // Persist before sending. Retries (including after restart) retain the ID and payload.
+    saveActivity();
+    if (pendingBatch.app_url !== normalizedBaseUrl().toString() || pendingBatch.pairing_key !== pairingKey.value) {
+      throw new Error('A desktop upload is pending for the previous pairing. Restore that server and pairing to finish syncing.');
+    }
+    const {activities} = pendingBatch;
+    await invoke('send_activity_batch', {payload: pendingBatch});
+    pendingBatch = null;
+    saveActivity();
     const totalSeconds = activities.reduce((sum, item) => sum + item.duration_seconds, 0);
     setConnectionHealth('working', `Connected · sent ${minutesLabel(totalSeconds)} at ${new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`);
   } catch (error) {
-    pendingActivity = [...sending, ...pendingActivity];
-    saveActivity();
     setConnectionHealth('error', error instanceof Error ? error.message : String(error));
   } finally {
     activityUploadRunning = false;

@@ -12,6 +12,15 @@ This is the Tauri 2 + Rust desktop sensor for Total Log. It currently provides:
 - manual Kindle library capture that logs the first displayed book's title and author without collecting reading position;
 - a loopback-only bridge for the optional browser extension, which forwards exact browser domains and synchronized mobile Chrome history using the desktop app's pairing key.
 
+The browser bridge checks Windows foreground/idle state before forwarding live
+browsing. Desktop samples stop at idle transitions and skip sleep/resume gaps.
+Uploads use a persisted batch ID so a lost response or restart can be retried
+without recording the same time twice. Deploy the server and run
+`php artisan migrate --force` before installing this desktop update. If the server
+or pairing changes while a batch is pending, restore that pairing to complete it.
+See [hourly repair instructions](../docs/sensor-repair.md) for existing duplicate
+reports and impossible browser durations.
+
 ## Windows prerequisites
 
 1. In **Visual Studio Installer**, modify your Visual Studio installation and select **Desktop development with C++**. Keep the MSVC build tools and Windows 10/11 SDK components selected.

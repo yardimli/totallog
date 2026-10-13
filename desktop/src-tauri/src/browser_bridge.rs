@@ -163,6 +163,12 @@ impl BrowserBridge {
         } else {
             "active browser data"
         };
+        if server_path.ends_with("/activity")
+            && !crate::activity::browser_tracking_allowed(&crate::activity::capture())
+        {
+            respond_json(request, 200, r#"{"skipped":true,"message":"Browser is not foreground or the computer is idle."}"#);
+            return;
+        }
         let result = tauri::async_runtime::block_on(forward(config, server_path, body));
         match result {
             Ok((status, response_body)) => {

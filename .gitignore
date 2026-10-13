@@ -24,6 +24,8 @@ yarn-error.log
 /.idea
 /.vscode
 *.json
+!/public/totallog-chrome-extension/manifest.json
+!/public/totallog-chrome-extension/manifest.json
 !/public/data/
 !/public/data/data-by-group.json
 

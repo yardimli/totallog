@@ -26,6 +26,7 @@ class DesktopSensorApiController extends Controller
             'client_id' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/'],
         ];
         $rules += $batch ? [
+            'batch_id' => ['nullable', 'uuid'],
             'activities' => ['required', 'array', 'min:1', 'max:500'],
             'activities.*.application' => ['required', 'string', 'max:255'],
             'activities.*.process_name' => ['required', 'string', 'max:255', 'regex:/^[^\\\\\/]+$/'],
@@ -41,7 +42,7 @@ class DesktopSensorApiController extends Controller
         $sensor = $this->desktopSensor($request);
 
         if ($batch) {
-            $activities = $recorder->recordBatch($sensor, $data['client_id'], $data['activities']);
+            $activities = $recorder->recordBatch($sensor, $data['client_id'], $data['activities'], $data['batch_id'] ?? null);
 
             return response()->json([
                 'message' => 'Desktop activity batch recorded.',

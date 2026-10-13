@@ -39,6 +39,41 @@ pub fn capture() -> ActivitySnapshot {
     }
 }
 
+// The extension also checks focus/idle; enforce OS activity at the bridge too.
+pub fn browser_tracking_allowed(snapshot: &ActivitySnapshot) -> bool {
+    if !snapshot.supported {
+        return true; // Other platforms rely on the extension's focus/idle checks.
+    }
+    snapshot.process_id != 0 && snapshot.idle_seconds < 180
+        && matches!(snapshot.application.to_ascii_lowercase().as_str(),
+            "chrome" | "msedge" | "brave" | "vivaldi" | "opera" | "chromium" | "firefox")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bridge_requires_an_active_foreground_browser() {
+        let mut snapshot = ActivitySnapshot {
+            application: "chrome".into(), executable: "chrome.exe".into(), window_title: String::new(),
+            process_id: 1, idle_seconds: 0, captured_at_unix_ms: 0, supported: true,
+        };
+        assert!(browser_tracking_allowed(&snapshot));
+        snapshot.idle_seconds = 180;
+        assert!(!browser_tracking_allowed(&snapshot));
+        snapshot.idle_seconds = u64::MAX;
+        assert!(!browser_tracking_allowed(&snapshot));
+        snapshot.idle_seconds = 0;
+        snapshot.application = "Code".into();
+        assert!(!browser_tracking_allowed(&snapshot));
+        snapshot.application = "msedge".into();
+        assert!(browser_tracking_allowed(&snapshot));
+        snapshot.process_id = 0;
+        assert!(!browser_tracking_allowed(&snapshot));
+    }
+}
+
 #[cfg(target_os = "windows")]
 mod windows {
     use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::Path};
@@ -117,7 +152,7 @@ mod windows {
             dwTime: 0,
         };
         if GetLastInputInfo(&mut input) == 0 {
-            return 0;
+            return u64::MAX; // Unknown idle state must not be counted as active.
         }
         (GetTickCount().wrapping_sub(input.dwTime) / 1000) as u64
     }

@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Total Log Browsing Sensor",
+  "description": "Adds active browsing time and synchronized mobile Chrome history to Total Log.",
+  "version": "2.0.2",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": ["alarms", "history", "idle", "storage", "tabs"],
+  "host_permissions": ["http://127.0.0.1:32145/*"],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Total Log Browsing Sensor",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  }
+}

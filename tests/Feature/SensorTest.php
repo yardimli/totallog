@@ -638,7 +638,7 @@ class SensorTest extends TestCase
         $this->assertArrayNotHasKey('content_scripts', $manifest);
         $this->assertContains('history', $manifest['permissions']);
         $this->assertFileDoesNotExist(public_path('totallog-chrome-extension/kindle-tracker.js'));
-        $this->assertSame('2.0.1', $manifest['version']);
+        $this->assertSame('2.0.2', $manifest['version']);
         $this->assertSame(['http://127.0.0.1:32145/*'], $manifest['host_permissions']);
         $options = file_get_contents(public_path('totallog-chrome-extension/options.html'));
         $this->assertStringContainsString('Sync past data', $options);

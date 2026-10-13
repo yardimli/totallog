@@ -27,6 +27,7 @@ class DesktopActivityRecorder
         $processName = strtolower(trim(basename(str_replace('\\', '/', $data['process_name']))));
 
         return DB::transaction(function () use ($sensor, $data, $observed, $application, $processName) {
+            User::whereKey($sensor->user_id)->lockForUpdate()->firstOrFail();
             $this->finalizeStale($sensor->user, $observed);
             $active = DesktopActivity::where('user_id', $sensor->user_id)
                 ->where('client_id', $data['client_id'])->whereNull('ended_at')
@@ -36,12 +37,15 @@ class DesktopActivityRecorder
             $sameHour = $active && $active->daily_log_id === $log->id
                 && $active->started_at->copy()->startOfHour()->equalTo($hourStart);
             $gap = $active ? $active->last_seen_at->diffInSeconds($observed, false) : null;
+            if ($active && $gap < 0) {
+                return $active;
+            }
 
             if ($active && $gap >= 0 && $gap <= self::INACTIVITY_SECONDS && $sameHour
                 && $active->application === $application && $active->process_name === $processName) {
                 $active->update([
                     'last_seen_at' => $observed,
-                    'duration_seconds' => max($active->duration_seconds, $active->started_at->diffInSeconds($observed)),
+                    'duration_seconds' => $active->started_at->diffInSeconds($observed),
                 ]);
                 $this->refreshBlock($active->logBlock);
                 $sensor->update(['last_checked_at' => now(), 'last_error' => null]);
@@ -73,9 +77,20 @@ class DesktopActivityRecorder
         });
     }
 
-    public function recordBatch(Sensor $sensor, string $clientId, array $increments): Collection
+    public function recordBatch(Sensor $sensor, string $clientId, array $increments, ?string $batchId = null): Collection
     {
-        return DB::transaction(function () use ($sensor, $clientId, $increments) {
+        return DB::transaction(function () use ($sensor, $clientId, $increments, $batchId) {
+            User::whereKey($sensor->user_id)->lockForUpdate()->firstOrFail();
+            $hash = hash('sha256', json_encode([$clientId, $increments], JSON_THROW_ON_ERROR));
+            if ($batchId) {
+                $receipt = DB::table('desktop_activity_batches')->where('user_id', $sensor->user_id)->where('batch_id', $batchId)->first();
+                if ($receipt) {
+                    if (! hash_equals($receipt->request_hash, $hash)) {
+                        throw ValidationException::withMessages(['batch_id' => 'A batch ID cannot be reused with different activity.']);
+                    }
+                    return DesktopActivity::where('user_id', $sensor->user_id)->whereKey(json_decode($receipt->activity_ids, true))->get();
+                }
+            }
             $recorded = collect();
             foreach ($increments as $increment) {
                 $started = Carbon::parse($increment['started_at'])->setTimezone(config('app.timezone'));
@@ -109,6 +124,14 @@ class DesktopActivityRecorder
             });
             $sensor->update(['last_checked_at' => now(), 'last_error' => null]);
 
+            if ($batchId) {
+                DB::table('desktop_activity_batches')->insert([
+                    'user_id' => $sensor->user_id, 'batch_id' => $batchId, 'request_hash' => $hash,
+                    'activity_ids' => json_encode($recorded->pluck('id')->all(), JSON_THROW_ON_ERROR),
+                    'created_at' => now(), 'updated_at' => now(),
+                ]);
+            }
+
             return $recorded;
         });
     }
@@ -116,23 +139,27 @@ class DesktopActivityRecorder
     public function finalizeStale(User $user, ?Carbon $at = null): void
     {
         $at ??= now();
-        $activities = DesktopActivity::where('user_id', $user->id)->whereNull('ended_at')
-            ->where('last_seen_at', '<=', $at->copy()->subSeconds(self::INACTIVITY_SECONDS))
-            ->lockForUpdate()->get();
-        foreach ($activities as $activity) {
-            $this->finish($activity, $activity->last_seen_at);
-        }
+        DB::transaction(function () use ($user, $at) {
+            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $activities = DesktopActivity::where('user_id', $user->id)->whereNull('ended_at')
+                ->where('last_seen_at', '<=', $at->copy()->subSeconds(self::INACTIVITY_SECONDS))
+                ->lockForUpdate()->get();
+            foreach ($activities as $activity) {
+                $this->finish($activity, $activity->last_seen_at);
+            }
+        });
     }
 
     private function finish(DesktopActivity $activity, Carbon $endedAt): void
     {
-        if ($endedAt->lessThan($activity->started_at)) {
-            $endedAt = $activity->last_seen_at;
-        }
+        $boundary = $activity->started_at->copy()->startOfHour()->addHour();
+        $endedAt = $endedAt->copy()->min($boundary)
+            ->min($activity->last_seen_at->copy()->addSeconds(self::INACTIVITY_SECONDS))
+            ->max($activity->started_at);
         $activity->update([
-            'last_seen_at' => $endedAt->greaterThan($activity->last_seen_at) ? $endedAt : $activity->last_seen_at,
+            'last_seen_at' => $endedAt->copy()->max($activity->last_seen_at)->min($boundary),
             'ended_at' => $endedAt,
-            'duration_seconds' => max($activity->duration_seconds, $activity->started_at->diffInSeconds($endedAt)),
+            'duration_seconds' => $activity->started_at->diffInSeconds($endedAt),
         ]);
         $this->refreshBlock($activity->logBlock);
     }

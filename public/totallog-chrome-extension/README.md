@@ -10,6 +10,12 @@ The extension connects only to the local bridge exposed by Total Log Desktop at 
 
 The extension sends only the active HTTP(S) hostname to the desktop app when the active tab changes and once per minute while Chrome is active. The desktop app forwards it using its own server pairing. Page paths, titles, query strings, and ports never leave the extension. Total Log stores the complete hostname—including subdomains such as `docs.github.com` or `mail.google.com`—and elapsed time in hourly browsing blocks. A session is considered finished after three minutes without a heartbeat.
 
+Version 2.0.2 requires the browser window to have focus and not be minimized, in
+addition to Chrome's idle check. Background tabs and simultaneous event triggers
+do not produce extra heartbeats. The updated desktop bridge independently checks
+Windows foreground/idle state before forwarding activity. Reload the extension
+after updating its files, and install the updated desktop app for both checks.
+
 When Chrome **History and tabs** sync is enabled, the extension also scans history synchronized from other devices every five minutes. It sends only the hostname, visit time, and a one-way deduplication hash. Total Log groups these visits into separate **Mobile browsing** blocks by hour and counts visits per domain. Chrome identifies them only as non-local visits, so history from multiple remote devices cannot be separated.
 
 Use **Sync past data** in the extension settings to ignore the incremental cursor and rescan the complete history range Chrome still retains. The scan pages through the available history index and the server safely ignores visits it has already imported.

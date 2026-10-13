@@ -19,6 +19,7 @@ class MobileBrowsingRecorder
         $blocks = collect();
 
         DB::transaction(function () use ($sensor, $visits, &$imported, &$duplicates, &$rejected, $blocks) {
+            \App\Models\User::whereKey($sensor->user_id)->lockForUpdate()->firstOrFail();
             foreach ($visits as $visit) {
                 if (MobileBrowsingVisit::where('user_id', $sensor->user_id)->where('visit_key', $visit['visit_key'])->exists()) {
                     $duplicates++;
