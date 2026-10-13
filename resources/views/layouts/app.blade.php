@@ -13,6 +13,8 @@
 
         <title>{{ config('app.name', 'Total Log') }}</title>
         <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+        <!-- Fetch the time picker artwork before its hidden panel is first opened. -->
+        <link rel="preload" as="image" href="{{ Vite::asset('resources/images/day-time-strip-noon-clock.jpg') }}">
         <script>(()=>{const themes=['light','paper','blue','red','dark'],saved=localStorage.getItem('totallog.theme'),theme=themes.includes(saved)?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=theme;document.documentElement.classList.toggle('dark',theme==='dark'||theme==='red')})()</script>
 
         <!-- Scripts -->
