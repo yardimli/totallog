@@ -14,9 +14,9 @@ This is the Tauri 2 + Rust desktop sensor for Total Log. It currently provides:
 
 The browser bridge checks Windows foreground/idle state before forwarding live
 browsing. Desktop samples stop at idle transitions and skip sleep/resume gaps.
-Uploads use a persisted batch ID so a lost response or restart can be retried
-without recording the same time twice. Deploy the server and run
-`php artisan migrate --force` before installing this desktop update. If the server
+Uploads retain the same payload after a lost response or restart. The server
+detects exact duplicates using existing activity records; this fix requires no
+new tables or migrations. Deploy the server code before the desktop update. If the server
 or pairing changes while a batch is pending, restore that pairing to complete it.
 See [hourly repair instructions](../docs/sensor-repair.md) for existing duplicate
 reports and impossible browser durations.

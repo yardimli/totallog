@@ -136,7 +136,7 @@ class HourlySensorRepairTest extends TestCase
         $user = User::factory()->create();
         $key = str_repeat('b', 64);
         Sensor::create(['user_id' => $user->id, 'type' => Sensor::DESKTOP, 'enabled' => true, 'pairing_key_hash' => hash('sha256', $key)]);
-        $payload = ['batch_id' => (string) Str::uuid(), 'client_id' => 'desktop', 'activities' => [[
+        $payload = ['client_id' => 'desktop', 'activities' => [[
             'application' => 'Code', 'process_name' => 'code.exe',
             'started_at' => now()->subMinutes(5)->toIso8601String(),
             'ended_at' => now()->toIso8601String(), 'duration_seconds' => 300,
@@ -146,8 +146,9 @@ class HourlySensorRepairTest extends TestCase
         $this->postJson('/api/sensors/desktop/activity', $payload)->assertCreated();
         $this->assertDatabaseCount('desktop_activities', 1);
         $this->assertSame(300, (int) DesktopActivity::sum('duration_seconds'));
-        $payload['activities'][0]['duration_seconds'] = 200;
-        $this->postJson('/api/sensors/desktop/activity', $payload)->assertUnprocessable();
-        $this->assertDatabaseCount('desktop_activities', 1);
+        // Identical activity on another client is distinct, not a retry.
+        $payload['client_id'] = 'another-desktop';
+        $this->postJson('/api/sensors/desktop/activity', $payload)->assertCreated();
+        $this->assertDatabaseCount('desktop_activities', 2);
     }
 }

@@ -26,7 +26,6 @@ type PendingBatch = {
   app_url: string;
   pairing_key: string;
   client_id: string;
-  batch_id: string;
   activities: ReturnType<typeof aggregatePending>;
 };
 
@@ -297,11 +296,11 @@ async function uploadActivityBatch() {
     if (!pendingBatch) {
       pendingBatch = {
         app_url: normalizedBaseUrl().toString(), pairing_key: pairingKey.value, client_id: clientId,
-        batch_id: crypto.randomUUID(), activities: aggregatePending(pendingActivity),
+        activities: aggregatePending(pendingActivity),
       };
       pendingActivity = [];
     }
-    // Persist before sending. Retries (including after restart) retain the ID and payload.
+    // Persist before sending. Identical payloads let the server recognize existing rows.
     saveActivity();
     if (pendingBatch.app_url !== normalizedBaseUrl().toString() || pendingBatch.pairing_key !== pairingKey.value) {
       throw new Error('A desktop upload is pending for the previous pairing. Restore that server and pairing to finish syncing.');

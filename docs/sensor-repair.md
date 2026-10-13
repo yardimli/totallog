@@ -1,9 +1,9 @@
 # Repair hourly sensor reports
 
-Deploy the server code, then run `php artisan migrate --force`. The migration adds
-desktop upload receipts so an updated desktop client's network retries do not
-count the same minutes twice. Existing clients remain compatible, but need the
-desktop update for retry protection and the extra Windows idle check.
+Deploy the server code. This fix uses the existing tables; no migration is needed.
+Update the desktop app and browser extension for the foreground/idle checks.
+The desktop client preserves upload payloads on retry, and the server recognizes
+exact matches in the existing desktop activity records.
 
 Preview one account's repair (replace the email):
 
@@ -73,9 +73,11 @@ seconds; an unavailable OS idle reading fails closed. History imports remain
 separate and are allowed while idle because they count past visits, not duration.
 
 Desktop sampling requires both interval endpoints to be active, and skips long
-sampling gaps such as sleep/resume. Each upload is persisted with an immutable
-batch UUID before sending; retries retain its payload and ID, even after restart.
-Do not purge `desktop_activity_batches` receipts while clients may retry uploads.
+sampling gaps such as sleep/resume. Each upload's payload is persisted before
+sending and retained on retries, even after restart. Duplicate detection compares
+the account, client, application, process, timestamps and duration against existing
+activity rows. It does not require a receipt table, and cannot recognize a retry
+once the corresponding activity has been deleted.
 
 The three-minute idle threshold intentionally permits a short period without
 keyboard/mouse input (for example while reading). It does not count hours of

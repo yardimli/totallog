@@ -77,20 +77,10 @@ class DesktopActivityRecorder
         });
     }
 
-    public function recordBatch(Sensor $sensor, string $clientId, array $increments, ?string $batchId = null): Collection
+    public function recordBatch(Sensor $sensor, string $clientId, array $increments): Collection
     {
-        return DB::transaction(function () use ($sensor, $clientId, $increments, $batchId) {
+        return DB::transaction(function () use ($sensor, $clientId, $increments) {
             User::whereKey($sensor->user_id)->lockForUpdate()->firstOrFail();
-            $hash = hash('sha256', json_encode([$clientId, $increments], JSON_THROW_ON_ERROR));
-            if ($batchId) {
-                $receipt = DB::table('desktop_activity_batches')->where('user_id', $sensor->user_id)->where('batch_id', $batchId)->first();
-                if ($receipt) {
-                    if (! hash_equals($receipt->request_hash, $hash)) {
-                        throw ValidationException::withMessages(['batch_id' => 'A batch ID cannot be reused with different activity.']);
-                    }
-                    return DesktopActivity::where('user_id', $sensor->user_id)->whereKey(json_decode($receipt->activity_ids, true))->get();
-                }
-            }
             $recorded = collect();
             foreach ($increments as $increment) {
                 $started = Carbon::parse($increment['started_at'])->setTimezone(config('app.timezone'));
@@ -104,6 +94,17 @@ class DesktopActivityRecorder
                 }
                 $application = trim(strip_tags($increment['application']));
                 $processName = strtolower(trim(basename(str_replace('\\', '/', $increment['process_name']))));
+                // Immutable client retries can be recognized from existing activity.
+                // The account lock also serializes concurrent identical uploads.
+                $existing = DesktopActivity::where('user_id', $sensor->user_id)
+                    ->where('client_id', $clientId)->where('application', $application)
+                    ->where('process_name', $processName)->where('started_at', $started)
+                    ->where('last_seen_at', $ended)->where('ended_at', $ended)
+                    ->where('duration_seconds', $duration)->first();
+                if ($existing) {
+                    $recorded->put($existing->id, $existing);
+                    continue;
+                }
                 $log = $this->dailyLog($sensor->user, $started);
                 $activity = DesktopActivity::create([
                     'user_id' => $sensor->user_id,
@@ -117,20 +118,12 @@ class DesktopActivityRecorder
                     'ended_at' => $ended,
                     'duration_seconds' => $duration,
                 ]);
-                $recorded->push($activity);
+                $recorded->put($activity->id, $activity);
             }
             $recorded->pluck('log_block_id')->unique()->each(function (int $blockId) {
                 $this->refreshBlock(LogBlock::findOrFail($blockId));
             });
             $sensor->update(['last_checked_at' => now(), 'last_error' => null]);
-
-            if ($batchId) {
-                DB::table('desktop_activity_batches')->insert([
-                    'user_id' => $sensor->user_id, 'batch_id' => $batchId, 'request_hash' => $hash,
-                    'activity_ids' => json_encode($recorded->pluck('id')->all(), JSON_THROW_ON_ERROR),
-                    'created_at' => now(), 'updated_at' => now(),
-                ]);
-            }
 
             return $recorded;
         });

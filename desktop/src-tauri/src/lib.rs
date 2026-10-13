@@ -114,7 +114,6 @@ struct ActivityBatchUpload {
     app_url: String,
     pairing_key: String,
     client_id: String,
-    batch_id: String,
     activities: Vec<ActivityIncrement>,
 }
 
@@ -198,7 +197,6 @@ async fn send_activity_batch(payload: ActivityBatchUpload) -> Result<UploadResul
         .json(&serde_json::json!({
             "client_id": payload.client_id,
             "activities": payload.activities,
-            "batch_id": payload.batch_id,
         }))
         .send()
         .await
