@@ -14,7 +14,11 @@ return new class extends Migration
         // Keep the TIMESTAMP type and all stored values. Supplying an explicit
         // default without ON UPDATE removes the implicit legacy auto-update rule.
         $table = str_replace('`', '``', DB::connection()->getTablePrefix().'browsing_activities');
-        DB::statement("ALTER TABLE `{$table}` MODIFY `started_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP");
+        // Legacy installations also have a zero-date default on last_seen_at.
+        // Fix both in one ALTER so strict mode can validate the entire table.
+        DB::statement("ALTER TABLE `{$table}`
+            MODIFY `started_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            MODIFY `last_seen_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP");
     }
 
     public function down(): void

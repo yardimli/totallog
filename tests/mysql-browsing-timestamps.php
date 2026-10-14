@@ -17,20 +17,34 @@ if ($connection->getDriverName() !== 'mysql') {
     throw new RuntimeException('This regression requires MySQL/MariaDB.');
 }
 $table = 'browsing_timestamp_test_'.bin2hex(random_bytes(6));
+$originalMode = $connection->selectOne('SELECT @@SESSION.sql_mode AS mode')->mode;
 $assert = function (bool $condition, string $message): void {
     if (! $condition) {
         throw new RuntimeException($message);
     }
 };
 try {
+    // Reproduce the actual legacy schema, then enable strict validation for
+    // the migration. These mode changes affect only this test connection.
+    $legacyMode = implode(',', array_diff(explode(',', $originalMode), ['NO_ZERO_DATE', 'NO_ZERO_IN_DATE']));
+    $connection->statement('SET SESSION sql_mode = ?', [$legacyMode]);
     $connection->statement("CREATE TEMPORARY TABLE `{$table}` (
         id INT PRIMARY KEY,
         started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        last_seen_at TIMESTAMP NULL DEFAULT NULL,
+        last_seen_at TIMESTAMP NOT NULL DEFAULT '0000-00-00 00:00:00',
         log_block_id INT NOT NULL,
         duration_seconds INT NOT NULL DEFAULT 0
     )");
     $connection->insert("INSERT INTO `{$table}` VALUES (1, '2026-01-01 10:00:00', '2026-01-01 10:00:00', 1, 0)");
+    $strictMode = implode(',', array_unique([...explode(',', $originalMode), 'STRICT_TRANS_TABLES', 'NO_ZERO_DATE', 'NO_ZERO_IN_DATE']));
+    $connection->statement('SET SESSION sql_mode = ?', [$strictMode]);
+    $legacyAlterFailed = false;
+    try {
+        $connection->statement("ALTER TABLE `{$table}` MODIFY `started_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP");
+    } catch (\Illuminate\Database\QueryException $error) {
+        $legacyAlterFailed = (int) ($error->errorInfo[1] ?? 0) === 1067;
+    }
+    $assert($legacyAlterFailed, 'The old migration must reproduce error 1067 for the last_seen_at default.');
     $connection->update("UPDATE `{$table}` SET duration_seconds = 30 WHERE id = 1");
     $assert($connection->selectOne("SELECT started_at FROM `{$table}` WHERE id = 1")->started_at !== '2026-01-01 10:00:00',
         'The legacy schema must reproduce start-time corruption.');
@@ -53,7 +67,10 @@ try {
     $connection->statement($sql);
     $assert($connection->selectOne("SELECT started_at FROM `{$table}` WHERE id = 1")->started_at === '2026-01-01 10:00:00',
         'Repeating the migration must preserve the original start.');
-    echo "PASS: reproduced legacy corruption; migration preserves data; heartbeat and regrouping keep start time; repeat is safe.\n";
+    $row = $connection->selectOne("SELECT * FROM `{$table}` WHERE id = 1");
+    $assert($row->last_seen_at === '2026-01-01 10:01:00', 'Reassignment must also preserve last_seen_at.');
+    echo "PASS: reproduced error 1067 and legacy corruption; fixed migration passes strict mode and preserves data; heartbeat and regrouping keep timestamps; repeat is safe.\n";
 } finally {
     $connection->statement("DROP TEMPORARY TABLE IF EXISTS `{$table}`");
+    $connection->statement('SET SESSION sql_mode = ?', [$originalMode]);
 }

@@ -22,7 +22,7 @@ return new class extends Migration
             // An explicit default prevents legacy MySQL/MariaDB from silently
             // adding ON UPDATE CURRENT_TIMESTAMP to this first TIMESTAMP column.
             $table->timestamp('started_at')->useCurrent();
-            $table->timestamp('last_seen_at');
+            $table->timestamp('last_seen_at')->useCurrent();
             $table->timestamp('ended_at')->nullable();
             $table->unsignedInteger('duration_seconds')->default(0);
             $table->timestamps();

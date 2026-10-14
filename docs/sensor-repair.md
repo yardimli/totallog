@@ -17,7 +17,9 @@ Sessions from many hours then appear to start together and their stored duration
 are summed into one hour. Regrouping again cannot recover the lost timestamps.
 
 The new migration sets an explicit `DEFAULT CURRENT_TIMESTAMP` without an
-`ON UPDATE` clause. The original create migration uses the same safe definition
+`ON UPDATE` clause. The same ALTER fixes the legacy zero-date default on
+`last_seen_at`, which strict SQL mode otherwise rejects with error 1067.
+Both columns keep their existing values. The original create migration uses the same safe definition
 for new installations. Rollback deliberately does not restore the corrupting rule.
 
 Verify the behavior on the configured MySQL/MariaDB server with:
