@@ -1,9 +1,41 @@
 # Repair hourly sensor reports
 
-Deploy the server code. This fix uses the existing tables; no migration is needed.
+Deploy the server code and run `php artisan migrate --force` before repairing
+browsing history. The October 14 migration removes automatic updates from
+`browsing_activities.started_at` without changing its type or stored values.
 Update the desktop app and browser extension for the foreground/idle checks.
 The desktop client preserves upload payloads on retry, and the server recognizes
 exact matches in the existing desktop activity records.
+
+## October 14: database overwrites browsing start times
+
+On older MySQL/MariaDB configurations, the first non-null TIMESTAMP column can
+implicitly receive `ON UPDATE CURRENT_TIMESTAMP`. The original browsing migration
+did not explicitly disable this behavior. The affected database has that rule on
+`started_at`, so heartbeats and hourly regrouping overwrite the session start.
+Sessions from many hours then appear to start together and their stored durations
+are summed into one hour. Regrouping again cannot recover the lost timestamps.
+
+The new migration sets an explicit `DEFAULT CURRENT_TIMESTAMP` without an
+`ON UPDATE` clause. The original create migration uses the same safe definition
+for new installations. Rollback deliberately does not restore the corrupting rule.
+
+Verify the behavior on the configured MySQL/MariaDB server with:
+
+```sh
+php tests/mysql-browsing-timestamps.php --run
+```
+
+This opt-in regression creates and drops only a randomly named temporary table.
+It reproduces the legacy bug, checks the exact migration SQL on that temporary
+table, and confirms that duration updates and reassignment preserve the start.
+It does not migrate or modify application tables.
+
+The schema fix prevents new timestamp overwrites; it does not reconstruct already
+overwritten history. Preserve the synced database before attempting historical
+cleanup. In particular, `--discard-invalid-browsing` deletes entire sessions and
+can remove genuine browsing whose timestamps were corrupted. Inspect the preview
+and a backup first rather than treating its remaining minutes as recovered truth.
 
 Preview one account's repair (replace the email):
 

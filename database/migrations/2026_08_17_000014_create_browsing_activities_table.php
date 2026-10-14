@@ -19,7 +19,9 @@ return new class extends Migration
             $table->foreignId('log_block_id')->constrained()->cascadeOnDelete();
             $table->string('domain', 253);
             $table->string('client_id', 64)->nullable();
-            $table->timestamp('started_at');
+            // An explicit default prevents legacy MySQL/MariaDB from silently
+            // adding ON UPDATE CURRENT_TIMESTAMP to this first TIMESTAMP column.
+            $table->timestamp('started_at')->useCurrent();
             $table->timestamp('last_seen_at');
             $table->timestamp('ended_at')->nullable();
             $table->unsignedInteger('duration_seconds')->default(0);
