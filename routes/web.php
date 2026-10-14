@@ -48,11 +48,19 @@ Route::get('/emojis', EmojiController::class)->name('emojis.index');
 Route::redirect('/dashboard', '/calendar')->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    // Keep bookmarks and installed client pairing URLs working.
+    Route::redirect('/profile', '/settings/profile');
+    Route::redirect('/sensors', '/settings/sensors');
+    Route::redirect('/api-usage', '/settings/api-usage');
+    Route::redirect('/admin/users', '/settings/admin/users')->middleware('admin');
+    Route::get('/sensors/browser/pair/{key}', [SensorController::class, 'pairBrowser']);
+    Route::get('/sensors/desktop/pair/{key}', [SensorController::class, 'pairDesktop']);
+
     Route::post('/session/keep-alive', SessionKeepAliveController::class)->name('session.keep-alive');
 
-    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::get('/settings/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/settings/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/settings/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     Route::get('/calendar/{date?}', [CalendarController::class, 'index'])->where('date', '\\d{4}-\\d{2}-\\d{2}')->name('calendar');
     Route::get('/search', LogSearchController::class)->name('search.index');
@@ -97,31 +105,33 @@ Route::middleware('auth')->group(function () {
     Route::patch('/events/{event}', [TaskEventController::class, 'update'])->name('events.update');
     Route::patch('/events/{event}/location', [TaskEventController::class, 'updateLocation'])->name('events.location');
 
-    Route::get('/sensors', [SensorController::class, 'index'])->name('sensors.index');
-    Route::post('/sensors/github', [SensorController::class, 'linkGithub'])->name('sensors.github.link');
-    Route::patch('/sensors/github', [SensorController::class, 'toggleGithub'])->name('sensors.github.toggle');
-    Route::delete('/sensors/github', [SensorController::class, 'unlinkGithub'])->name('sensors.github.unlink');
-    Route::get('/sensors/browser/pair/{key}', [SensorController::class, 'pairBrowser'])->name('sensors.browser.pair');
-    Route::delete('/sensors/browser', [SensorController::class, 'unlinkBrowser'])->name('sensors.browser.unlink');
-    Route::get('/sensors/desktop/pair/{key}', [SensorController::class, 'pairDesktop'])->name('sensors.desktop.pair');
-    Route::delete('/sensors/desktop', [SensorController::class, 'unlinkDesktop'])->name('sensors.desktop.unlink');
-    Route::get('/sensors/google-calendar/connect', [GoogleCalendarSensorController::class, 'connect'])->name('sensors.google-calendar.connect');
+    Route::get('/settings/sensors', [SensorController::class, 'index'])->name('sensors.index');
+    Route::post('/settings/sensors/github/sync', [SensorController::class, 'syncGithub'])->middleware('throttle:6,1')->name('sensors.github.sync');
+    Route::post('/settings/sensors/github', [SensorController::class, 'linkGithub'])->name('sensors.github.link');
+    Route::patch('/settings/sensors/github', [SensorController::class, 'toggleGithub'])->name('sensors.github.toggle');
+    Route::delete('/settings/sensors/github', [SensorController::class, 'unlinkGithub'])->name('sensors.github.unlink');
+    Route::get('/settings/sensors/browser/pair/{key}', [SensorController::class, 'pairBrowser'])->name('sensors.browser.pair');
+    Route::delete('/settings/sensors/browser', [SensorController::class, 'unlinkBrowser'])->name('sensors.browser.unlink');
+    Route::get('/settings/sensors/desktop/pair/{key}', [SensorController::class, 'pairDesktop'])->name('sensors.desktop.pair');
+    Route::delete('/settings/sensors/desktop', [SensorController::class, 'unlinkDesktop'])->name('sensors.desktop.unlink');
+    Route::get('/settings/sensors/google-calendar/connect', [GoogleCalendarSensorController::class, 'connect'])->name('sensors.google-calendar.connect');
+    // Keep the callback registered with Google stable; it is not a settings page.
     Route::get('/sensors/google-calendar/callback', [GoogleCalendarSensorController::class, 'callback'])->name('sensors.google-calendar.callback');
-    Route::patch('/sensors/google-calendar', [GoogleCalendarSensorController::class, 'toggle'])->name('sensors.google-calendar.toggle');
-    Route::post('/sensors/google-calendar/sync', [GoogleCalendarSensorController::class, 'sync'])->name('sensors.google-calendar.sync');
-    Route::delete('/sensors/google-calendar', [GoogleCalendarSensorController::class, 'unlink'])->name('sensors.google-calendar.unlink');
+    Route::patch('/settings/sensors/google-calendar', [GoogleCalendarSensorController::class, 'toggle'])->name('sensors.google-calendar.toggle');
+    Route::post('/settings/sensors/google-calendar/sync', [GoogleCalendarSensorController::class, 'sync'])->name('sensors.google-calendar.sync');
+    Route::delete('/settings/sensors/google-calendar', [GoogleCalendarSensorController::class, 'unlink'])->name('sensors.google-calendar.unlink');
 
     Route::get('/settings', [SettingsController::class, 'edit'])->name('settings.edit');
     Route::get('/settings/screensaver', [SettingsController::class, 'screensaver'])->name('settings.screensaver');
     Route::get('/settings/screensaver/logo', [SettingsController::class, 'screensaverLogo'])->name('settings.screensaver.logo');
-    Route::get('/api-usage', [ApiUsageController::class, 'index'])->name('api-usage.index');
+    Route::get('/settings/api-usage', [ApiUsageController::class, 'index'])->name('api-usage.index');
     Route::patch('/settings', [SettingsController::class, 'update'])->name('settings.update');
     Route::patch('/settings/screensaver', [SettingsController::class, 'updateScreensaver'])->name('settings.screensaver.update');
     Route::patch('/settings/screensaver/toggle', [SettingsController::class, 'toggleScreensaver'])->name('settings.screensaver.toggle');
     Route::get('/openrouter/models', [OpenRouterController::class, 'models'])->name('openrouter.models');
     Route::post('/logs/{dailyLog}/chat', [OpenRouterController::class, 'chat'])->name('openrouter.chat');
     Route::post('/chat-actions/{proposal}/confirm', [OpenRouterController::class, 'confirmChatAction'])->name('openrouter.chat-actions.confirm');
-    Route::middleware('admin')->prefix('admin')->name('admin.')->group(function () {
+    Route::middleware('admin')->prefix('settings/admin')->name('admin.')->group(function () {
         Route::get('/users', [AdminController::class, 'users'])->name('users');
         Route::delete('/demo-data', [AdminController::class, 'destroyDemoData'])->name('demo-data.destroy');
     });

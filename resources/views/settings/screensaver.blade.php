@@ -1,12 +1,9 @@
-@extends('layouts.app')
+@extends('layouts.settings')
 
-@section('header')
-<div id="screensaver-page-heading"><p class="text-xs font-semibold uppercase tracking-wide text-indigo-600">A little nostalgia</p><h1 class="text-xl font-bold">Screensaver setup</h1></div>
-@endsection
+@section('settings-title', 'Screensaver')
+@section('settings-description', 'Choose what appears when you take a break.')
 
-@section('content')
-<div id="screensaver-settings-page" class="mx-auto max-w-6xl space-y-5 p-4 sm:p-6 lg:p-8">
-    @include('partials.account-tabs')
+@section('settings-content')
     <form method="POST" action="{{ route('settings.screensaver.update') }}" enctype="multipart/form-data" class="space-y-5" data-screensaver-settings-form>
         @csrf @method('PATCH')
         <section class="panel">
@@ -43,5 +40,4 @@
 
         <div id="screensaver-form-actions" class="flex flex-wrap items-center gap-3"><button class="btn">Save screensaver settings</button><button type="button" class="btn-secondary" data-screensaver-start>Start now</button></div>
     </form>
-</div>
 @endsection

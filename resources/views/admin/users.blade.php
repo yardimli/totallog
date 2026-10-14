@@ -1,12 +1,13 @@
-@extends('layouts.app')
+@extends('layouts.settings')
 
-@section('content')
-    <div id="admin-users-page" class="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8">
-        @include('partials.account-tabs')
+@section('settings-title', 'Users')
+@section('settings-description', 'Manage registered users and the shared demo.')
+
+@section('settings-content')
         <section id="admin-users-heading" class="panel flex flex-wrap items-start gap-4">
             <div id="admin-users-heading-copy" class="min-w-0 flex-1">
                 <p class="text-xs font-bold uppercase tracking-wider text-indigo-600">Administration</p>
-                <h1 class="mt-1 text-3xl font-black">Users</h1>
+                <h2 class="text-lg font-bold">User administration</h2>
                 <p class="mt-2 text-sm text-slate-500">Review registered users and reset the shared read-only demo.</p>
             </div>
             <form method="POST" action="{{ route('admin.demo-data.destroy') }}" data-confirm-demo-delete>
@@ -42,5 +43,4 @@
             </div>
             @if($users->hasPages())<div id="admin-user-pagination" class="border-t border-slate-200 px-4 py-3 dark:border-slate-800">{{ $users->links() }}</div>@endif
         </section>
-    </div>
 @endsection

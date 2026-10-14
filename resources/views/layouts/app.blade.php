@@ -38,7 +38,7 @@
 
             <!-- Page Content -->
             <main id="page-content">
-                @if(session('status'))<div id="application-status-region" class="mx-auto mt-4 max-w-7xl px-4"><div id="application-status-message" class="rounded-xl bg-emerald-100 px-4 py-3 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">{{ session('status') }}</div></div>@endif
+                @if(session('status'))<div id="application-status-region" class="mx-auto mt-4 px-4 {{ View::hasSection('settings-title') ? 'max-w-6xl sm:px-6 lg:px-8' : 'max-w-7xl' }}"><div id="application-status-message" class="rounded-xl bg-emerald-100 px-4 py-3 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">{{ session('status') }}</div></div>@endif
                 @yield('content')
             </main>
         </div>

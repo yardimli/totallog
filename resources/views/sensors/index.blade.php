@@ -1,12 +1,9 @@
-@extends('layouts.app')
+@extends('layouts.settings')
 
-@section('header')
-    <div id="sensors-page-heading"><p class="text-xs font-semibold uppercase tracking-wide text-indigo-600">Automatic log updates</p><h1 class="text-xl font-bold">Sensors</h1></div>
-@endsection
+@section('settings-title', 'Sensors')
+@section('settings-description', 'Connect services and manage automatic log updates.')
 
-@section('content')
-    <div id="sensors-page-container" class="mx-auto max-w-3xl space-y-5 p-4 sm:p-6 lg:p-8">
-        @include('partials.account-tabs')
+@section('settings-content')
         @if(session('error'))<div id="sensors-error-message" class="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">{{ session('error') }}</div>@endif
         <section id="github-sensor-card" class="panel">
             <div id="github-sensor-heading" class="flex items-start gap-3">
@@ -22,6 +19,8 @@
                     <div id="github-sensor-account" class="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900"><p class="text-xs font-bold uppercase tracking-wider text-slate-500">Linked account</p><p class="mt-1 text-lg font-bold">{{ '@'.$githubSensor->username }}</p>@if($githubSensor->last_checked_at)<p class="mt-1 text-xs text-slate-500">Last checked {{ auth()->user()->formatTime($githubSensor->last_checked_at) }} on {{ $githubSensor->last_checked_at->format('M j, Y') }}</p>@endif</div>
                     <form method="POST" action="{{ route('sensors.github.toggle') }}" data-ajax data-sensor-toggle-form>@csrf @method('PATCH')<input type="hidden" name="enabled" value="0"><label class="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4 dark:border-slate-700"><span><strong>Automatic updates</strong><span class="block text-xs text-slate-500">Check GitHub whenever you open a current or unsynced past day.</span></span><span class="relative inline-flex h-7 w-12 shrink-0"><input type="checkbox" class="peer sr-only" name="enabled" value="1" data-sensor-enable @checked($githubSensor->enabled)><span class="absolute inset-0 rounded-full bg-slate-300 transition peer-checked:bg-indigo-600 dark:bg-slate-700"></span><span class="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5"></span></span></label></form>
                     @if($githubSensor->last_error)<div id="github-sensor-error" class="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"><strong>Last check failed.</strong> {{ $githubSensor->last_error }}</div>@endif
+                    <form method="POST" action="{{ route('sensors.github.sync') }}" data-ajax>@csrf<button type="submit" class="btn w-full justify-center" data-busy-label="Syncing…"><span data-button-label>Sync now</span></button></form>
+                    @include('sensors.partials.github-sync-report', ['report' => data_get($githubSensor->settings, 'last_github_sync')])
                     <form method="POST" action="{{ route('sensors.github.unlink') }}" data-confirm-sensor-unlink>@csrf @method('DELETE')<button class="btn-secondary w-full border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950">Unlink GitHub</button></form>
                     <p class="text-center text-xs text-slate-500">Unlinking removes the saved token but keeps GitHub entries already added to your logs.</p>
                 </div>
@@ -103,5 +102,4 @@
         </section>
 
         <section id="future-sensors-card" class="panel border-dashed"><p class="text-xs font-bold uppercase tracking-wider text-indigo-600">More sensors</p><h2 class="mt-1 text-lg font-bold">More automatic sources are coming</h2><p class="mt-1 text-sm text-slate-500">The sensor system is ready for additional activity, health, location, and service integrations.</p></section>
-    </div>
 @endsection

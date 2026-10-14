@@ -1,12 +1,9 @@
-@extends('layouts.app')
+@extends('layouts.settings')
 
-@section('header')
-        <div id="api-usage-page-heading"><p class="text-xs font-semibold uppercase tracking-wide text-indigo-600">OpenRouter</p><h1 class="text-2xl font-bold">API usage</h1></div>
-@endsection
+@section('settings-title', 'API usage')
+@section('settings-description', 'Review calls, tokens, and estimated costs.')
 
-@section('content')
-    <div id="api-usage-page-container" class="mx-auto max-w-7xl space-y-5 p-4 sm:p-6 lg:p-8">
-        @include('partials.account-tabs')
+@section('settings-content')
         <section class="grid gap-3 sm:grid-cols-3">
             <div class="api-usage-summary-card panel"><p class="text-xs font-bold uppercase text-slate-500">Calls</p><p class="mt-1 text-2xl font-black">{{ number_format($totals->calls) }}</p></div>
             <div class="api-usage-summary-card panel"><p class="text-xs font-bold uppercase text-slate-500">Tokens</p><p class="mt-1 text-2xl font-black">{{ number_format($totals->tokens) }}</p></div>
@@ -30,5 +27,4 @@
             </div>
         </section>
         {{ $calls->links() }}
-    </div>
 @endsection

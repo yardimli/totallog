@@ -63,38 +63,10 @@ class GithubSensorSync
             }
             $commits = $this->github->commitsForDay($sensor->username, $token, $day);
             DB::transaction(function () use ($sensor, $log, $day, $commits) {
+                Sensor::whereKey($sensor->id)->lockForUpdate()->firstOrFail();
+                $this->insertCommits($log, $commits);
                 $blocks = $this->consolidateExistingBlocks($log);
-                $existingShas = $blocks->flatMap(fn (LogBlock $block) => collect(data_get($block->metadata, 'commits', []))->pluck('sha'))->filter()->all();
-                if ($commits->isNotEmpty()) {
-                    $log->blocks()->where('type', 'sensor_github')->get()
-                        ->filter(fn (LogBlock $block) => data_get($block->metadata, 'empty') === true)
-                        ->each->delete();
-                    $blocks = $blocks->reject(fn (LogBlock $block) => data_get($block->metadata, 'empty') === true)->values();
-                }
-
                 $position = (int) ($log->blocks()->max('position') ?? 0);
-                foreach ($commits as $commit) {
-                    if (in_array($commit['sha'], $existingShas, true)) {
-                        continue;
-                    }
-                    $event = $this->commitEvent($commit);
-                    $key = $this->commitGroupKey($event['project'], $event['occurred_at']);
-                    $block = $blocks->first(fn (LogBlock $candidate) => $this->blockGroupKey($candidate) === $key);
-                    if (! $block) {
-                        $block = $log->blocks()->create([
-                            'type' => 'sensor_github',
-                            'emoji' => '💻',
-                            'content' => $event['project'],
-                            'position' => ++$position,
-                            'occurred_at' => Carbon::parse($event['occurred_at']),
-                            'metadata' => ['sensor' => Sensor::GITHUB, 'empty' => false, 'commits' => []],
-                        ]);
-                        $blocks->push($block);
-                    }
-                    $events = collect(data_get($block->metadata, 'commits', []))->push($event)->unique('sha')->sortBy('occurred_at')->values();
-                    $this->updateGroupBlock($block, $event['project'], $events);
-                    $existingShas[] = $event['sha'];
-                }
 
                 if (! $day->isToday() && $commits->isEmpty() && $blocks->isEmpty()) {
                     $log->blocks()->create([
@@ -120,6 +92,92 @@ class GithubSensorSync
             $sensor->update(['last_checked_at' => now(), 'last_error' => $error->getMessage()]);
             Log::warning('GitHub sensor sync failed.', ['sensor_id' => $sensor->id, 'date' => $day->toDateString(), 'message' => $error->getMessage()]);
         }
+    }
+
+    public function syncLatest(Sensor $sensor): array
+    {
+        try {
+            if (blank($sensor->token)) {
+                throw new \RuntimeException('Reconnect GitHub before syncing.');
+            }
+            $commits = $this->github->latestCommits($sensor->username, $sensor->token);
+
+            return DB::transaction(function () use ($sensor, $commits) {
+                $sensor = Sensor::whereKey($sensor->id)->lockForUpdate()->firstOrFail();
+                $known = [];
+                // Include legacy entries and every day, so a manual retry never duplicates a commit.
+                foreach (LogBlock::where('type', 'sensor_github')
+                    ->whereHas('dailyLog', fn ($query) => $query->where('user_id', $sensor->user_id))->cursor() as $block) {
+                    foreach ($this->blockEvents($block) as $event) {
+                        $known[$event['sha']] = true;
+                    }
+                }
+                $missing = $commits->reject(fn ($commit) => isset($known[$commit['sha']]));
+                $inserted = [];
+                foreach ($missing->groupBy(fn ($commit) => $commit['occurred_at']->toDateString()) as $date => $dayCommits) {
+                    $log = DailyLog::where('user_id', $sensor->user_id)->whereDate('log_date', $date)->first()
+                        ?? DailyLog::create(['user_id' => $sensor->user_id, 'log_date' => $date]);
+                    $inserted = array_merge($inserted, $this->insertCommits($log, $dayCommits));
+                }
+                $report = [
+                    'synced_at' => now()->toIso8601String(),
+                    'commits' => $commits->map(fn ($commit) => [
+                        ...$this->commitEvent($commit),
+                        'status' => in_array($commit['sha'], $inserted, true) ? 'new' : 'already_inserted',
+                    ])->all(),
+                ];
+                $sensor->update([
+                    'last_checked_at' => now(),
+                    'last_error' => null,
+                    'settings' => array_merge($sensor->settings ?? [], ['last_github_sync' => $report]),
+                ]);
+
+                return $report;
+            });
+        } catch (Throwable $error) {
+            $sensor->update(['last_checked_at' => now(), 'last_error' => $error->getMessage()]);
+            throw $error;
+        }
+    }
+
+    private function insertCommits(DailyLog $log, Collection $commits): array
+    {
+        $blocks = $this->consolidateExistingBlocks($log);
+        $existingShas = $blocks->flatMap(fn (LogBlock $block) => collect(data_get($block->metadata, 'commits', []))->pluck('sha'))->filter()->all();
+        if ($commits->isNotEmpty()) {
+            $log->blocks()->where('type', 'sensor_github')->get()
+                ->filter(fn (LogBlock $block) => data_get($block->metadata, 'empty') === true)
+                ->each->delete();
+            $blocks = $blocks->reject(fn (LogBlock $block) => data_get($block->metadata, 'empty') === true)->values();
+        }
+
+        $inserted = [];
+        $position = (int) ($log->blocks()->max('position') ?? 0);
+        foreach ($commits as $commit) {
+            if (in_array($commit['sha'], $existingShas, true)) {
+                continue;
+            }
+            $event = $this->commitEvent($commit);
+            $key = $this->commitGroupKey($event['project'], $event['occurred_at']);
+            $block = $blocks->first(fn (LogBlock $candidate) => $this->blockGroupKey($candidate) === $key);
+            if (! $block) {
+                $block = $log->blocks()->create([
+                    'type' => 'sensor_github',
+                    'emoji' => '💻',
+                    'content' => $event['project'],
+                    'position' => ++$position,
+                    'occurred_at' => Carbon::parse($event['occurred_at']),
+                    'metadata' => ['sensor' => Sensor::GITHUB, 'empty' => false, 'commits' => []],
+                ]);
+                $blocks->push($block);
+            }
+            $events = collect(data_get($block->metadata, 'commits', []))->push($event)->unique('sha')->sortBy('occurred_at')->values();
+            $this->updateGroupBlock($block, $event['project'], $events);
+            $existingShas[] = $event['sha'];
+            $inserted[] = $event['sha'];
+        }
+
+        return $inserted;
     }
 
     private function consolidateExistingBlocks(DailyLog $log): Collection

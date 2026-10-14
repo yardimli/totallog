@@ -1,12 +1,9 @@
-@extends('layouts.app')
+@extends('layouts.settings')
 
-@section('header')
-<div id="settings-page-heading"><p class="text-xs font-semibold uppercase tracking-wide text-indigo-600">Across every device</p><h1 class="text-xl font-bold">API & display settings</h1></div>
-@endsection
+@section('settings-title', 'API & display')
+@section('settings-description', 'Manage display preferences and your OpenRouter connection.')
 
-@section('content')
-    <div id="settings-page-container" class="mx-auto max-w-3xl space-y-5 p-4 sm:p-6 lg:p-8">
-        @include('partials.account-tabs')
+@section('settings-content')
         <form method="POST" action="{{ route('settings.update') }}" class="space-y-5">
             @csrf @method('PATCH')
             <section class="panel">
@@ -34,5 +31,4 @@
 
             <div id="settings-form-actions" class="flex flex-wrap items-center gap-3"><button class="btn">Save settings</button><a class="text-sm font-semibold text-indigo-600" href="{{ route('profile.edit') }}">Account profile & password →</a></div>
         </form>
-    </div>
 @endsection

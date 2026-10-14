@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Sensor;
 use App\Services\GithubSensorClient;
+use App\Services\GithubSensorSync;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -111,6 +112,7 @@ class SensorController extends Controller
             [
                 'username' => $account['login'],
                 'token' => $data['github_token'],
+                'settings' => [],
                 'enabled' => true,
                 'last_checked_at' => null,
                 'last_error' => null,
@@ -122,6 +124,30 @@ class SensorController extends Controller
         }
 
         return back()->with('status', 'GitHub linked and enabled.');
+    }
+
+    public function syncGithub(Request $request, GithubSensorSync $sync)
+    {
+        $sensor = $this->githubSensor($request);
+        try {
+            $report = $sync->syncLatest($sensor);
+        } catch (\Throwable $error) {
+            report($error);
+            $message = $error instanceof RuntimeException
+                ? $error->getMessage()
+                : 'GitHub sync failed. Check the connection and try again.';
+
+            return $request->expectsJson()
+                ? response()->json(['message' => $message], 422)
+                : redirect()->route('sensors.index')->with('error', $message);
+        }
+        $count = count($report['commits']);
+        $new = collect($report['commits'])->where('status', 'new')->count();
+        $message = "GitHub sync complete: {$count} commits checked, {$new} new, ".($count - $new).' already inserted.';
+
+        return $request->expectsJson()
+            ? response()->json(['message' => $message, 'reload' => true, 'report' => $report])
+            : redirect()->route('sensors.index')->with('status', $message);
     }
 
     public function toggleGithub(Request $request)

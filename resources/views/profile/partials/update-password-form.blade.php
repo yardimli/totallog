@@ -1,10 +1,10 @@
 <section>
     <header>
-        <h2 class="text-lg font-medium text-gray-900">
+        <h2 class="text-lg font-bold">
             {{ __('Update Password') }}
         </h2>
 
-        <p class="mt-1 text-sm text-gray-600">
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {{ __('Ensure your account is using a long, random password to stay secure.') }}
         </p>
     </header>
@@ -35,7 +35,7 @@
             <button type="submit" class="btn">{{ __('Save') }}</button>
 
             @if (session('status') === 'password-updated')
-                <p class="text-sm text-gray-600" data-auto-dismiss>{{ __('Saved.') }}</p>
+                <p class="text-sm text-slate-500 dark:text-slate-400" data-auto-dismiss>{{ __('Saved.') }}</p>
             @endif
         </div>
     </form>
