@@ -303,6 +303,7 @@ function renderTimelineItem(item) {
     } else {
         row.dataset.timelineEdit = ''; row.dataset.editKind = block.edit_kind; row.dataset.editEventName = block.event?.name || ''; row.dataset.editUrl = block.edit_url; row.dataset.editContent = block.content || ''; row.dataset.editEmoji = block.emoji || ''; row.dataset.editIcon = block.icon_data || ''; row.dataset.editUpdated = block.updated || ''; row.dataset.editLocation = JSON.stringify(block.event?.location || null); row.dataset.hideUrl = block.hide_url; row.dataset.deleteUrl = block.delete_url; row.dataset.isHidden = block.is_hidden ? 'true' : 'false';
     }
+    if (block.optimistic) row.dataset.pendingCreation = 'true';
     if (block.is_hidden) row.dataset.hiddenPlannerItem = '';
     row.append(element('time', 'w-20 shrink-0 pt-4 text-center font-mono text-xs font-bold text-slate-500', formatClock(item.time)));
     const wrapper = element('div', 'timeline-entry-card min-w-0 flex-1');
@@ -581,7 +582,10 @@ function updateDayControls(state) {
     nextTimeline.append(timelineContent);
     timeline.replaceWith(nextTimeline);
     const composer = document.querySelector('[data-composer-note-form]');
-    if (composer) { composer.action = state.log.create_block_url; composer.dataset.createAction = state.log.create_block_url; }
+    if (composer) {
+        composer.dataset.createAction = state.log.create_block_url;
+        if (composer.dataset.composerMode !== 'edit') composer.action = state.log.create_block_url;
+    }
     const headingDate = document.querySelector('#log-composer-heading-copy > p'); if (headingDate) headingDate.textContent = state.title;
     const chat = document.querySelector('[data-smart-chat-form]'); if (chat) chat.action = state.log.chat_url;
     updateDayNavigation(state);
@@ -2098,6 +2102,7 @@ function reconcileOptimisticBlock(id, body) {
     if (row) {
         row.querySelector('article').id = `block-${item.block.id}`;
         row.querySelector('article').classList.remove('ring-2', 'ring-indigo-300');
+        delete row.dataset.pendingCreation;
         row.dataset.editUrl = item.block.edit_url; row.dataset.hideUrl = item.block.hide_url; row.dataset.deleteUrl = item.block.delete_url; row.dataset.editUpdated = item.block.updated;
     }
 }
@@ -2358,6 +2363,7 @@ document.addEventListener('click', async e => {
         else if (timelineItem.matches('[data-timeline-browsing]')) openBrowsingDetails(timelineItem);
         else if (timelineItem.matches('[data-timeline-google-calendar]')) openGoogleCalendarDetails(timelineItem);
         else if (demoReadOnly) toast('The demo is read-only. Create an account to save your own entries.');
+        else if (timelineItem.dataset.pendingCreation === 'true') toast('This entry is still saving. Please try again in a moment.');
         else if (timelineItem.matches('[data-timeline-edit]')) configureComposer({time: timelineItem.dataset.timelineTime, mode:'edit', kind:timelineItem.dataset.editKind, eventName:timelineItem.dataset.editEventName, action:timelineItem.dataset.editUrl, content:timelineItem.dataset.editContent, emoji:timelineItem.dataset.editEmoji, iconData:timelineItem.dataset.editIcon, updated:timelineItem.dataset.editUpdated, hideUrl:timelineItem.dataset.hideUrl, deleteUrl:timelineItem.dataset.deleteUrl, isHidden:timelineItem.dataset.isHidden === 'true', location:JSON.parse(timelineItem.dataset.editLocation || 'null')});
         else configureComposer({time:timelineItem.dataset.timelineTime || timelineItem.dataset.currentTime});
     }
