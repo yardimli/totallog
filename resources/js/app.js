@@ -384,7 +384,7 @@ function updateDayStickyEvents(state) {
     section.replaceChildren(...stickyEvents.map(task => renderTaskButton(task, null, {bubble:true})));
     section.classList.toggle('hidden', stickyEvents.length === 0);
     section.classList.toggle('flex', stickyEvents.length > 0);
-    section.setAttribute('aria-label', `Sticky events for ${state.date}`);
+    section.setAttribute('aria-label', `Any-time events for ${state.date}`);
 }
 
 function initializeHorizontalDrag() {
@@ -1702,6 +1702,8 @@ function configureEventDefinition(data = null) {
     if (colorPreview) { colorPreview.style.backgroundColor = color.value; colorPreview.title = color.value; }
     const recurrence = form.querySelector('[name="recurrence_type"]');
     recurrence.value = data?.recurrence_type || 'daily';
+    form.querySelector('[name="repeat_interval"]').value = data?.repeat_interval || 1;
+    form.querySelector('[name="repeat_start_date"]').value = data?.repeat_start_date || '';
     const days = (data?.recurrence_days || []).map(Number);
     form.querySelectorAll('[name="weekdays[]"]').forEach(input => { input.checked = days.includes(Number(input.value)); });
     form.querySelector('[name="month_days_text"]').value = recurrence.value === 'monthly' ? days.join(', ') : '';
@@ -2591,6 +2593,9 @@ document.querySelectorAll('[data-recurrence-form]').forEach(form => {
     const weekly = form.querySelector('[data-recurrence-weekly]');
     const monthly = form.querySelector('[data-recurrence-monthly]');
     const update = () => {
+        form.querySelector('[data-recurrence-daily]')?.classList.toggle('hidden', select.value !== 'daily');
+        const interval = form.querySelector('[name="repeat_interval"]');
+        if (interval) interval.disabled = select.value !== 'daily';
         weekly?.classList.toggle('hidden', select.value !== 'weekly');
         monthly?.classList.toggle('hidden', select.value !== 'monthly');
     };

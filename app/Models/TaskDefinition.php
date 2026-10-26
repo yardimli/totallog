@@ -21,7 +21,7 @@ class TaskDefinition extends Model
         'sky' => '#0284c7',
     ];
 
-    protected $fillable = ['user_id', 'position', 'name', 'emoji', 'icon_data', 'color', 'is_sticky', 'daily_default_count', 'recurrence_type', 'recurrence_days', 'scheduled_times', 'visible_after', 'options', 'is_active'];
+    protected $fillable = ['user_id', 'position', 'name', 'emoji', 'icon_data', 'color', 'is_sticky', 'daily_default_count', 'recurrence_type', 'repeat_interval', 'repeat_start_date', 'recurrence_days', 'scheduled_times', 'visible_after', 'options', 'is_active'];
 
     protected $casts = [
         'is_sticky' => 'boolean',
@@ -29,6 +29,8 @@ class TaskDefinition extends Model
         'daily_default_count' => 'integer',
         'is_active' => 'boolean',
         'recurrence_days' => 'array',
+        'repeat_interval' => 'integer',
+        'repeat_start_date' => 'date',
         'scheduled_times' => 'array',
         'options' => 'array',
     ];
@@ -45,6 +47,14 @@ class TaskDefinition extends Model
 
     public function occursOn(CarbonInterface $day): bool
     {
+        if ($this->repeat_start_date && $day->toDateString() < $this->repeat_start_date->toDateString()) {
+            return false;
+        }
+        if (($this->recurrence_type ?: 'daily') === 'daily' && $this->repeat_start_date) {
+            $date = $this->repeat_start_date->copy()->setDate($day->year, $day->month, $day->day);
+            return (int) $this->repeat_start_date->diffInDays($date) % max(1, $this->repeat_interval ?? 1) === 0;
+        }
+
         return match ($this->recurrence_type ?: 'daily') {
             'weekly' => in_array($day->isoWeekday(), $this->recurrence_days ?? [], true),
             'monthly' => in_array($day->day, $this->recurrence_days ?? [], true),
@@ -72,11 +82,14 @@ class TaskDefinition extends Model
         $recurrence = match ($this->recurrence_type ?: 'daily') {
             'weekly' => collect($days)->map(fn ($day) => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][$day - 1] ?? null)->filter()->implode(', '),
             'monthly' => 'Monthly on '.collect($days)->implode(', '),
-            default => 'Every day',
+            default => ($this->repeat_interval ?? 1) > 1 ? 'Every '.$this->repeat_interval.' days' : 'Every day',
         };
         $times = collect($this->scheduled_times ?? [])->map(fn ($time) => auth()->user()?->formatClock($time) ?? $time)->implode(', ');
 
         $summary = $times ? "$recurrence at $times" : $recurrence;
+        if ($this->repeat_start_date) {
+            $summary .= ' · starting '.$this->repeat_start_date->toDateString();
+        }
         if ($this->is_sticky && $this->visible_after) {
             $visibleAfter = auth()->user()?->formatClock($this->visible_after) ?? $this->visible_after;
             $summary .= " · visible after $visibleAfter";

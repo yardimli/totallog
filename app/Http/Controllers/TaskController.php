@@ -101,6 +101,8 @@ class TaskController extends Controller
             'color' => ['required', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'options_text' => 'nullable|string|max:1000',
             'recurrence_type' => 'required|in:daily,weekly,monthly',
+            'repeat_interval' => 'nullable|integer|min:1|max:999',
+            'repeat_start_date' => 'nullable|date_format:Y-m-d',
             'weekdays' => 'nullable|array',
             'weekdays.*' => 'integer|between:1,7',
             'month_days_text' => 'nullable|string|max:200',
@@ -111,6 +113,9 @@ class TaskController extends Controller
             'daily_default_count' => 'nullable|integer|min:1|max:999',
         ]);
         $options = collect(preg_split('/[\r\n,]+/', $data['options_text'] ?? ''))->map(fn ($v) => trim($v))->filter()->unique()->values()->all();
+        if ($data['recurrence_type'] === 'daily' && ($data['repeat_interval'] ?? 1) > 1 && empty($data['repeat_start_date'])) {
+            throw ValidationException::withMessages(['repeat_start_date' => 'Choose the first day for this repeat interval.']);
+        }
         $recurrenceDays = match ($data['recurrence_type']) {
             'weekly' => collect($data['weekdays'] ?? [])->map(fn ($day) => (int) $day)->unique()->sort()->values()->all(),
             'monthly' => collect(preg_split('/[\s,]+/', $data['month_days_text'] ?? ''))->filter()->map(fn ($day) => (int) $day)->filter(fn ($day) => $day >= 1 && $day <= 31)->unique()->sort()->values()->all(),
@@ -132,6 +137,8 @@ class TaskController extends Controller
             'is_sticky' => $request->boolean('is_sticky'),
             'daily_default_count' => $data['daily_default_count'] ?? 1,
             'recurrence_type' => $data['recurrence_type'],
+            'repeat_interval' => $data['recurrence_type'] === 'daily' ? ($data['repeat_interval'] ?? 1) : 1,
+            'repeat_start_date' => $data['repeat_start_date'] ?? null,
             'recurrence_days' => $recurrenceDays ?: null,
             'scheduled_times' => $scheduledTimes->all() ?: null,
             'visible_after' => $request->boolean('is_sticky') ? ($data['visible_after'] ?? null) : null,

@@ -84,7 +84,7 @@ class DayLogController extends Controller
             ]);
         }
 
-        $incompleteStickyTasks = $tasks->where('is_sticky', true)->filter(function (TaskDefinition $task) use ($counts, $slotCounts) {
+        $incompleteStickyTasks = $tasks->filter(fn (TaskDefinition $task) => $task->is_sticky || empty($task->scheduled_times))->filter(function (TaskDefinition $task) use ($counts, $slotCounts) {
             $times = $task->scheduled_times ?? [];
             if (! $times) {
                 return (int) ($counts[$task->id] ?? 0) < $task->daily_default_count;
