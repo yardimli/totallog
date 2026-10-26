@@ -36,16 +36,19 @@ class EventRepeatTest extends TestCase
         $this->travelTo(Carbon::parse('2026-10-25 14:37:00'));
         $user = User::factory()->create();
         $task = $user->taskDefinitions()->create(['name' => 'Drink water', 'is_sticky' => false, 'daily_default_count' => 2]);
+        $sticky = $user->taskDefinitions()->create(['name' => 'Sticky reminder', 'is_sticky' => true]);
         $url = route('logs.show', '2026-10-25');
         $html = $this->actingAs($user)->get($url)->assertOk()->getContent();
-        $this->assertLessThan(strpos($html, 'id="daily-log-sticky-events"'), strpos($html, 'id="timeline"'));
+        $this->assertLessThan(strpos($html, 'id="daily-log-untimed-events"'), strpos($html, 'id="timeline"'));
+        $this->assertLessThan(strpos($html, 'id="daily-log-goals"'), strpos($html, 'id="daily-log-sticky-events"'));
+        $this->assertLessThan(strpos($html, 'id="timeline"'), strpos($html, 'id="daily-log-sticky-events"'));
         $log = DailyLog::where('user_id', $user->id)->firstOrFail();
-        $this->withHeader('X-Day-State', 'json')->get($url)->assertJsonCount(1, 'sticky_events');
+        $this->withHeader('X-Day-State', 'json')->get($url)->assertJsonCount(1, 'untimed_events')->assertJsonPath('sticky_events.0.id', $sticky->id);
         $this->postJson(route('events.store', [$log, $task]))->assertCreated()->assertJsonPath('time', '14:37')->assertJsonPath('count', 1);
-        $this->get($url)->assertJsonCount(1, 'sticky_events')->assertJsonPath('sticky_events.0.count', 1);
+        $this->get($url)->assertJsonCount(1, 'untimed_events')->assertJsonPath('untimed_events.0.count', 1);
         $this->postJson(route('events.store', [$log, $task]))->assertCreated()->assertJsonPath('count', 2);
-        $this->get($url)->assertJsonCount(0, 'sticky_events');
-        $this->get(route('logs.show', '2026-10-26'))->assertJsonCount(1, 'sticky_events')->assertJsonPath('sticky_events.0.count', 0);
+        $this->get($url)->assertJsonCount(0, 'untimed_events');
+        $this->get(route('logs.show', '2026-10-26'))->assertJsonCount(1, 'untimed_events')->assertJsonPath('untimed_events.0.count', 0);
         $this->travelBack();
     }
 }

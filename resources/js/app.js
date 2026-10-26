@@ -132,7 +132,8 @@ let activeDayState = null;
 const DAY_RETURN_REMINDER_DELAY = 60 * 60 * 1000;
 let dayReturnReminderTimer = null;
 let dayReturnPromptOpen = false;
-const loadedLocalDate = localDateKey();
+const rolloverDateStorageKey = 'totallog.rollover-date';
+const loadedLocalDate = restoreRolloverDate();
 let dateRolloverTimer = null;
 let dateRolloverPromptOpen = false;
 const supportsDayStateNavigation = () => Boolean(document.querySelector('#daily-log-page-container'));
@@ -141,6 +142,16 @@ const restoreDayState = state => { if (state) renderDayState(state, {scroll:{x:w
 
 function localDateKey(date = new Date()) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function restoreRolloverDate() {
+    const today = localDateKey();
+    try {
+        const saved = sessionStorage.getItem(rolloverDateStorageKey);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(saved || '')) return saved;
+        sessionStorage.setItem(rolloverDateStorageKey, today);
+    } catch (_) { /* In-memory checks still work when storage is unavailable. */ }
+    return today;
 }
 
 function viewedCalendarDate() {
@@ -155,6 +166,7 @@ function scheduleDateRolloverCheck() {
 }
 
 async function checkForDateRollover() {
+    if (document.hidden) return;
     if (localDateKey() === loadedLocalDate) { scheduleDateRolloverCheck(); return; }
     if (dateRolloverPromptOpen) return;
     if (document.querySelector('[data-modal-backdrop]')) {
@@ -168,16 +180,24 @@ async function checkForDateRollover() {
         confirmText: 'Refresh now',
         cancelText: null,
     });
+    try { sessionStorage.setItem(rolloverDateStorageKey, localDateKey()); } catch (_) {}
     window.location.assign(document.querySelector('meta[name="today-url"]')?.content || '/log/today');
 }
 
 function startDateRolloverWatch() {
-    scheduleDateRolloverCheck();
     const checkWhenActive = () => { if (!document.hidden) checkForDateRollover(); };
     document.addEventListener('visibilitychange', checkWhenActive);
+    document.addEventListener('resume', checkWhenActive);
     window.addEventListener('focus', checkWhenActive);
     window.addEventListener('pageshow', checkWhenActive);
     document.addEventListener('screensaver:stopped', checkWhenActive);
+    const checkOnInteraction = () => {
+        if (localDateKey() !== loadedLocalDate) checkWhenActive();
+    };
+    document.addEventListener('pointerdown', checkOnInteraction, {passive:true});
+    document.addEventListener('touchstart', checkOnInteraction, {passive:true});
+    document.addEventListener('keydown', checkOnInteraction);
+    checkWhenActive();
 }
 
 function scheduleDayReturnReminder() {
@@ -378,13 +398,18 @@ function updateDayGoals(state) {
 }
 
 function updateDayStickyEvents(state) {
-    const section = document.querySelector('#daily-log-sticky-events');
-    if (!section) return;
-    const stickyEvents = state.sticky_events || [];
-    section.replaceChildren(...stickyEvents.map(task => renderTaskButton(task, null, {bubble:true})));
-    section.classList.toggle('hidden', stickyEvents.length === 0);
-    section.classList.toggle('flex', stickyEvents.length > 0);
-    section.setAttribute('aria-label', `Any-time events for ${state.date}`);
+    for (const [id, key, label] of [
+        ['daily-log-sticky-events', 'sticky_events', 'Sticky events'],
+        ['daily-log-untimed-events', 'untimed_events', 'Any-time events'],
+    ]) {
+        const section = document.getElementById(id);
+        if (!section) continue;
+        const events = state[key] || [];
+        section.replaceChildren(...events.map(task => renderTaskButton(task, null, {bubble:true})));
+        section.classList.toggle('hidden', events.length === 0);
+        section.classList.toggle('flex', events.length > 0);
+        section.setAttribute('aria-label', `${label} for ${state.date}`);
+    }
 }
 
 function initializeHorizontalDrag() {
@@ -2447,10 +2472,12 @@ document.addEventListener('click', async e => {
         const optimisticTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
         mutateDayState(state => {
             state.tasks.filter(item => item.event_url === eventUrl).forEach(item => { item.count += 1; });
-            state.sticky_events = (state.sticky_events || []).map(item => {
-                if (item.event_url === eventUrl) item.count += 1;
-                return item;
-            }).filter(item => Number(item.count || 0) < Number(item.daily_default_count || 1));
+            for (const key of ['sticky_events', 'untimed_events']) {
+                state[key] = (state[key] || []).map(item => {
+                    if (item.event_url === eventUrl) item.count += 1;
+                    return item;
+                }).filter(item => Number(item.count || 0) < Number(item.daily_default_count || 1));
+            }
             state.timeline.filter(item => item.kind === 'schedule' && item.task.event_url === eventUrl).forEach(item => {
                 item.task.count += 1;
                 if (!scheduledTime || item.time === scheduledTime) item.task.slot_count = Number(item.task.slot_count || 0) + 1;

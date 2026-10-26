@@ -753,8 +753,8 @@ class TotalLogTest extends TestCase
         ]);
 
         $response = $this->actingAs($user)->get('/logs/2026-08-15')->assertOk()
-            ->assertSee('id="daily-log-sticky-events" class="horizontal-drag-strip flex touch-auto select-none flex-nowrap', false)
-            ->assertDontSee('style="top:var(--primary-navigation-height, 4rem)"', false)
+            ->assertSee('id="daily-log-sticky-events" class="horizontal-drag-strip flex sticky z-30 touch-auto select-none flex-nowrap', false)
+            ->assertSee('style="top:var(--primary-navigation-height, 4rem)"', false)
             ->assertSee('data-horizontal-drag', false)
             ->assertSee('data-sticky-event-bubble', false)
             ->assertSee('data-scheduled-time="17:00"', false)

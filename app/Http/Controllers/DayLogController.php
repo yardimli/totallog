@@ -225,6 +225,11 @@ class DayLogController extends Controller
             ],
             'tasks' => $taskData->all(),
             'sticky_events' => $floatingStickyTasks
+                ->where('is_sticky', true)
+                ->map(fn (TaskDefinition $task) => $this->taskState($log, $task, $counts, $slotCounts))
+                ->values()->all(),
+            'untimed_events' => $floatingStickyTasks
+                ->where('is_sticky', false)
                 ->map(fn (TaskDefinition $task) => $this->taskState($log, $task, $counts, $slotCounts))
                 ->values()->all(),
             'goals' => $goalSnapshots->map(fn ($snapshot) => [
