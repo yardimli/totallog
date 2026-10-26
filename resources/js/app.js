@@ -2475,7 +2475,7 @@ document.addEventListener('click', async e => {
             reorderTimeline(state);
         });
         task.disabled = true;
-        const eventCreatePromise = ajax(eventUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value, scheduled_time:scheduledTime})});
+        const eventCreatePromise = ajax(eventUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({value, scheduled_time:scheduledTime, occurred_at:optimisticTime})});
         pendingEventCreates.set(optimisticId, eventCreatePromise);
         configureComposer({
             time:optimisticTime,

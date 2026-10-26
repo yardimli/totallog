@@ -24,6 +24,7 @@ class TaskEventController extends Controller
         $data = $request->validate([
             'value' => [empty($task->options) ? 'nullable' : 'required', 'nullable', 'string', 'max:100'],
             'scheduled_time' => ['nullable', \App\Support\DayTime::RULE],
+            'occurred_at' => ['nullable', \App\Support\DayTime::RULE],
         ]);
         if (! empty($task->options) && ! in_array($data['value'] ?? null, $task->options, true)) {
             abort(422, 'Choose a valid value.');
@@ -45,7 +46,9 @@ class TaskEventController extends Controller
         abort_if($scheduledTime !== null && $slotCount > $task->daily_default_count, 422, 'This event time slot has reached its daily count.');
 
         $now = now();
-        $occurredAt = $dailyLog->log_date->copy()->setTime($now->hour, $now->minute, $now->second);
+        // Daily log times are wall-clock values, just like event edits. Prefer
+        // the browser's click time over the server's potentially different zone.
+        $occurredAt = $dailyLog->log_date->copy()->setTimeFromTimeString($data['occurred_at'] ?? $now->format('H:i:s'));
         $position = ($occurredAt->hour * 3600) + ($occurredAt->minute * 60) + $occurredAt->second;
         $event = DB::transaction(function () use ($dailyLog, $task, $data, $scheduledTime, $occurredAt, $position) {
             $block = $dailyLog->blocks()->create(['type' => 'event', 'emoji' => $task->emoji, 'icon_data' => $task->icon_data, 'position' => $position, 'occurred_at' => $occurredAt]);
