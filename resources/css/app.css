@@ -25,6 +25,38 @@
 }
 
 @layer base {
+    :root {
+        --scrollbar-thumb: #94a3b8;
+        --scrollbar-thumb-hover: #64748b;
+        color-scheme: light;
+    }
+    :root.dark {
+        --scrollbar-thumb: #475569;
+        --scrollbar-thumb-hover: #64748b;
+        color-scheme: dark;
+    }
+    /* Cover every scroll container, including dynamically created panels. */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-thumb) transparent;
+    }
+    *::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    *::-webkit-scrollbar-track,
+    *::-webkit-scrollbar-corner {
+        background: transparent;
+    }
+    *::-webkit-scrollbar-thumb {
+        background-color: var(--scrollbar-thumb);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+        border-radius: 999px;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+        background-color: var(--scrollbar-thumb-hover);
+    }
     html {
         scrollbar-gutter: stable;
     }

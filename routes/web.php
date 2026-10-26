@@ -89,21 +89,22 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/attachments/{attachment}', [AttachmentController::class, 'show'])->name('attachments.show');
 
-    Route::get('/tasks', [TaskController::class, 'index'])->name('tasks.index');
-    Route::post('/tasks', [TaskController::class, 'store'])->name('tasks.store');
-    Route::patch('/tasks/reorder', [TaskController::class, 'reorder'])->name('tasks.reorder');
-    Route::patch('/tasks/{task}', [TaskController::class, 'update'])->name('tasks.update');
-    Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->name('tasks.destroy');
+    Route::redirect('/tasks', '/events');
+    Route::get('/events', [TaskController::class, 'index'])->name('tasks.index');
+    Route::post('/events', [TaskController::class, 'store'])->name('tasks.store');
+    Route::patch('/events/reorder', [TaskController::class, 'reorder'])->name('tasks.reorder');
+    Route::patch('/events/{task}', [TaskController::class, 'update'])->whereNumber('task')->name('tasks.update');
+    Route::delete('/events/{task}', [TaskController::class, 'destroy'])->whereNumber('task')->name('tasks.destroy');
     Route::get('/goals', [GoalController::class, 'index'])->name('goals.index');
     Route::post('/goals', [GoalController::class, 'store'])->name('goals.store');
     Route::get('/goals/{goal}', [GoalController::class, 'show'])->name('goals.show');
     Route::patch('/goals/{goal}', [GoalController::class, 'update'])->name('goals.update');
     Route::delete('/goals/{goal}', [GoalController::class, 'destroy'])->name('goals.destroy');
     Route::post('/goals/{goal}/entries', [GoalEntryController::class, 'store'])->name('goals.entries.store');
-    Route::post('/logs/{dailyLog}/tasks/{task}/events', [TaskEventController::class, 'store'])->name('events.store');
-    Route::get('/events/{event}/edit', [TaskEventController::class, 'edit'])->name('events.edit');
-    Route::patch('/events/{event}', [TaskEventController::class, 'update'])->name('events.update');
-    Route::patch('/events/{event}/location', [TaskEventController::class, 'updateLocation'])->name('events.location');
+    Route::post('/logs/{dailyLog}/events/{task}/entries', [TaskEventController::class, 'store'])->name('events.store');
+    Route::get('/events/entries/{event}/edit', [TaskEventController::class, 'edit'])->name('events.edit');
+    Route::patch('/events/entries/{event}', [TaskEventController::class, 'update'])->name('events.update');
+    Route::patch('/events/entries/{event}/location', [TaskEventController::class, 'updateLocation'])->name('events.location');
 
     Route::get('/settings/sensors', [SensorController::class, 'index'])->name('sensors.index');
     Route::post('/settings/sensors/github/sync', [SensorController::class, 'syncGithub'])->middleware('throttle:6,1')->name('sensors.github.sync');

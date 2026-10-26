@@ -371,9 +371,11 @@ function updateDayNavigation(state) {
         const nextMenu = menu.cloneNode(false);
         const menuContent = document.createDocumentFragment();
         state.tasks.forEach(task => menuContent.append(renderTaskButton(task)));
+        const setupLink = menu.querySelector('[data-event-setup-link]');
+        if (setupLink) menuContent.append(setupLink.cloneNode(true));
         nextMenu.append(menuContent);
         menu.replaceWith(nextMenu);
-        eventsMenu?.classList.toggle('hidden', state.tasks.length === 0);
+        eventsMenu?.classList.toggle('hidden', state.tasks.length === 0 && !setupLink);
     }
 }
 

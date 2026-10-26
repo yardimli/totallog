@@ -31,7 +31,7 @@
                 <a class="nav-link grid h-9 w-9 place-items-center p-0" href="{{ route('calendar') }}" aria-label="Open calendar" title="Calendar">
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h2M12 14h2M16 14h2M8 18h2M12 18h2"/></svg>
                 </a>
-                    <details class="relative z-50 {{ $tasks->isEmpty() ? 'hidden' : '' }}" data-events-menu>
+                    <details class="relative z-50 {{ auth()->user()->is_guest ? 'hidden' : '' }}" data-events-menu>
                         <summary class="nav-link grid h-9 w-9 cursor-pointer list-none place-items-center p-0 [&::-webkit-details-marker]:hidden" aria-label="Events" title="Events">
                             <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 2 2 3-3M11 7h9M4 12l2 2 3-3M11 13h9M4 18l2 2 3-3M11 19h9"/></svg>
                         </summary>
@@ -39,6 +39,9 @@
                             @foreach($tasks as $task)
                                 <button class="flex items-center rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800" data-task-event="{{ route('events.store', [$log, $task]) }}" data-task-emoji="{{ $task->emoji }}" data-task-icon="{{ $task->icon_data }}" data-capture-location data-name="{{ $task->name }}" data-options='@json($task->options ?? [])'><span class="mr-2 h-4 w-4 shrink-0 rounded-sm border border-slate-300 dark:border-slate-600" style="background-color:{{ $task->color_hex }}"></span>@if($task->icon_data)<img src="{{ $task->icon_data }}" class="mr-2 h-7 w-7 shrink-0 rounded-lg object-cover" alt="">@else<span class="mr-2 text-lg" aria-hidden="true">{{ $task->emoji }}</span>@endif<span class="min-w-0"><strong>{{ $task->name }}</strong> <span class="rounded-full bg-slate-100 px-1.5 dark:bg-slate-800" data-count>{{ $counts[$task->id] ?? 0 }}</span><small class="block text-slate-500">{{ collect($task->scheduled_times ?? [])->map(fn ($time) => auth()->user()->formatClock($time))->implode(', ') ?: 'Any time' }}</small></span></button>
                             @endforeach
+                            @unless(auth()->user()->is_guest)
+                                <a href="{{ route('tasks.index') }}" class="mt-1 border-t border-slate-200 px-3 py-3 text-sm font-semibold text-indigo-600 hover:bg-slate-100 dark:border-slate-700 dark:text-indigo-400 dark:hover:bg-slate-800" data-event-setup-link>Event setup</a>
+                            @endunless
                         </div>
                     </details>
             </div>
