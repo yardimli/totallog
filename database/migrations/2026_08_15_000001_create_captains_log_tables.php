@@ -50,7 +50,7 @@ return new class extends Migration
             $table->foreignId('log_block_id')->unique()->constrained()->cascadeOnDelete();
             $table->string('task_name', 80);
             $table->string('selected_value', 100)->nullable();
-            $table->timestamp('occurred_at');
+            $table->dateTime('occurred_at');
             $table->timestamps();
             $table->index(['daily_log_id', 'task_definition_id', 'occurred_at']);
         });

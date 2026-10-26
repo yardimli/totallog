@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('log_blocks', function (Blueprint $table) {
-            $table->timestamp('occurred_at')->nullable()->after('position');
+            $table->dateTime('occurred_at')->nullable()->after('position');
             $table->index(['daily_log_id', 'occurred_at']);
         });
     }
