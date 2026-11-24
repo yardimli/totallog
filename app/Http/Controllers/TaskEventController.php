@@ -22,10 +22,12 @@ class TaskEventController extends Controller
         abort_unless($dailyLog->user_id === $request->user()->id && $task->user_id === $request->user()->id, 403);
         abort_unless($task->is_active && $task->occursOn($dailyLog->log_date), 422, 'This event is not scheduled for this day.');
         $data = $request->validate([
+            'notes' => 'nullable|string|max:100000',
+            'emoji' => 'nullable|string|max:32',
             'value' => [empty($task->options) ? 'nullable' : 'required', 'nullable', 'string', 'max:100'],
             'scheduled_time' => ['nullable', \App\Support\DayTime::RULE],
             'occurred_at' => ['nullable', \App\Support\DayTime::RULE],
-        ]);
+        ] + \App\Support\EntryLocation::rules());
         if (! empty($task->options) && ! in_array($data['value'] ?? null, $task->options, true)) {
             abort(422, 'Choose a valid value.');
         }
@@ -51,9 +53,9 @@ class TaskEventController extends Controller
         $occurredAt = $dailyLog->log_date->copy()->setTimeFromTimeString($data['occurred_at'] ?? $now->format('H:i:s'));
         $position = ($occurredAt->hour * 3600) + ($occurredAt->minute * 60) + $occurredAt->second;
         $event = DB::transaction(function () use ($dailyLog, $task, $data, $scheduledTime, $occurredAt, $position) {
-            $block = $dailyLog->blocks()->create(['type' => 'event', 'emoji' => $task->emoji, 'icon_data' => $task->icon_data, 'position' => $position, 'occurred_at' => $occurredAt]);
+            $block = $dailyLog->blocks()->create(['type' => 'event', 'content' => $data['notes'] ?? null, 'emoji' => $data['emoji'] ?? $task->emoji, 'icon_data' => $task->icon_data, 'position' => $position, 'occurred_at' => $occurredAt]);
 
-            return TaskEvent::create(['daily_log_id' => $dailyLog->id, 'task_definition_id' => $task->id, 'log_block_id' => $block->id, 'task_name' => $task->name, 'selected_value' => $data['value'] ?? null, 'scheduled_time' => $scheduledTime, 'occurred_at' => $occurredAt]);
+            return TaskEvent::create(['daily_log_id' => $dailyLog->id, 'task_definition_id' => $task->id, 'log_block_id' => $block->id, 'task_name' => $task->name, 'selected_value' => $data['value'] ?? null, 'scheduled_time' => $scheduledTime, 'occurred_at' => $occurredAt] + ($data['location'] ?? []));
         });
         $this->goalProgress->syncForUser($request->user());
 
@@ -77,7 +79,10 @@ class TaskEventController extends Controller
             'notes' => 'nullable|string|max:100000',
             'emoji' => 'nullable|string|max:32',
             'occurred_at' => ['sometimes', 'required', \App\Support\DayTime::RULE],
-        ]);
+        ] + \App\Support\EntryLocation::rules());
+        if (isset($data['location'])) {
+            $event->update($data['location']);
+        }
         $updates = ['content' => $data['notes'] ?? null];
         if (array_key_exists('emoji', $data)) {
             $updates['emoji'] = $data['emoji'] ?: LogBlock::defaultEmojiForType('event');

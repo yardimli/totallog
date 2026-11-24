@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { enhanceEntryControls } from './entry-controls';
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -7,6 +8,8 @@ import {
     localDate,
     localTime,
     goalPoints,
+    calendarHeat,
+    calendarRange,
     type Row,
     type LoggingState,
 } from "./logging-model";
@@ -33,11 +36,17 @@ const root = document.querySelector<HTMLElement>("#logging-app")!;
 let state: LoggingState = { account: null };
 let view: Row = project(state);
 let page = "day";
+let calendarMode = "week";
+let sidebarCollapsed = localStorage.getItem("totalLogDesktop.sidebarCollapsed") === "true";
+const navIcons: Record<string, string> = { day: "☷", calendar: "▦", tasks: "✓", goals: "◎", search: "⌕", chat: "◌", sensors: "◉", settings: "⚙", usage: "▥", tracker: "▣" };
+const navLabel = (key: string, label: string) => `<span class="nav-icon" aria-hidden="true">${navIcons[key]}</span><span class="nav-label">${label}</span>`;
+
 let date = localDate();
 let search = "";
 let showHidden = false;
 let busy = false;
 let again = false;
+let againManual = true;
 let message = "";
 let models: Row[] = [];
 const pages: Record<string, string> = {
@@ -100,16 +109,19 @@ async function reload() {
             ?.focus();
 }
 
-async function sync() {
+async function sync(manual = false) {
     if (!state.account) return;
     if (busy) {
         again = true;
+        againManual = againManual && manual;
         return;
     }
     busy = true;
     status("Syncing…");
     try {
-        await invoke("logging_sync");
+        const scope = manual && page === "day" ? {from: date, to: date}
+            : manual && page === "calendar" ? calendarRange(date, calendarMode, Number(view.user.week_starts_on ?? 1)) : null;
+        await invoke("logging_sync", {scope});
         message = "";
     } catch (e) {
         message = String(e);
@@ -118,7 +130,9 @@ async function sync() {
         await reload();
         if (again) {
             again = false;
-            void sync();
+            const manualRetry = againManual;
+            againManual = true;
+            void sync(manualRetry);
         }
     }
 }
@@ -140,7 +154,7 @@ async function save(kind: string, data: Row, target: unknown = null) {
     });
     window.dispatchEvent(new Event("logging-user-sync"));
     view = project(state);
-    message = "Saved on this PC.";
+    message = "Saved.";
     render();
     // User edits bypass the periodic timer. The native outbox survives an unavailable server.
     void sync();
@@ -195,7 +209,7 @@ function clock(value: unknown) {
     const [h, m] = time.split(":").map(Number);
     return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
-function renderBlock(block: Row, withDate = false) {
+function renderBlock(block: Row, withDate = false, expanded = false) {
     const event = block.task_event;
     const title =
         event?.task_name ||
@@ -211,66 +225,84 @@ function renderBlock(block: Row, withDate = false) {
             } as Row
         )[block.type] ||
         String(block.type).replaceAll("_", " ");
+    if (!expanded) return button(
+        `<span class="entry-time">${withDate ? esc(blockDate(block)) + " " : ""}${esc(clock(block.occurred_at || block.created_at))}</span><span class="row-title">${esc(block.emoji || "•")} ${esc(title)}</span><span class="row-preview">${esc([event?.selected_value, block.content].filter(Boolean).join(" · "))}</span>${block._pending ? '<small class="pending-label">Local</small>' : ""}${block.is_hidden ? "<small>Hidden</small>" : ""}`,
+        "edit-block", block.id, `timeline-row ${block.is_hidden ? "is-hidden" : ""}`);
     const details = [
         ...(block.desktop_activities || []),
         ...(block.browsing_activities || []),
         ...(block.mobile_browsing_visits || []),
         ...(block.kindle_reading_progress || []),
     ];
-    return `<article class="log-entry ${block.is_hidden ? "is-hidden" : ""}"><div class="entry-time">${withDate ? button(esc(blockDate(block)), "date", blockDate(block), "quiet") : ""}${esc(clock(block.occurred_at || block.created_at))}</div><div class="entry-body"><div class="entry-heading"><span>${esc(block.emoji || "•")} ${esc(title)}</span>${block._pending ? '<small class="pending-label">Saved locally</small>' : ""}${block.is_hidden ? "<small>Hidden</small>" : ""}</div>${event?.selected_value ? `<p class="entry-value">${esc(event.selected_value)}</p>` : ""}${block.content ? `<div class="entry-content">${esc(block.content)}</div>` : ""}${event?.city ? `<small>${esc([event.suburb, event.city].filter(Boolean).join(", "))}</small>` : ""}${details.length ? `<details><summary>${details.length} activity details</summary>${details.map((d: Row) => `<p>${esc(d.application || d.domain || d.title || d.book_title || d.url || "Activity")} ${d.duration_seconds ? `· ${Math.round(d.duration_seconds / 60)} min` : ""}</p>`).join("")}</details>` : ""}${block.metadata?.commits ? `<details><summary>Commits</summary>${block.metadata.commits.map((c: Row) => `<p>${esc(c.project)} · ${esc(c.message)}</p>`).join("")}</details>` : ""}${block.google_calendar_event ? `<p>${esc(block.google_calendar_event.summary || block.google_calendar_event.title)}</p>` : ""}${(block.attachments || []).map((a: Row) => button(`Open ${esc(a.original_name || "attachment")}`, "attachment", a.id, "quiet")).join("")}<div class="entry-actions">${button("Edit", "edit-block", block.id, "quiet")}${button(block.is_hidden ? "Show" : "Hide", "hide-block", block.id, "quiet")}${button("Delete", "delete-block", block.id, "quiet danger")}</div></div></article>`;
+    return `<article class="log-entry ${block.is_hidden ? "is-hidden" : ""}"><div class="entry-time">${withDate ? button(esc(blockDate(block)), "date", blockDate(block), "quiet") : ""}${esc(clock(block.occurred_at || block.created_at))}</div><div class="entry-body"><div class="entry-heading"><span>${esc(block.emoji || "•")} ${esc(title)}</span>${block._pending ? '<small class="pending-label">Saved locally</small>' : ""}${block.is_hidden ? "<small>Hidden</small>" : ""}</div>${event?.selected_value ? `<p class="entry-value">${esc(event.selected_value)}</p>` : ""}${block.content ? `<div class="entry-content">${esc(block.content)}</div>` : ""}${event?.city ? `<small>${esc([event.suburb, event.city].filter(Boolean).join(", "))}</small>` : ""}${details.length ? `<details><summary>${details.length} activity details</summary>${details.map((d: Row) => `<p>${esc(d.application || d.domain || d.title || d.book_title || d.url || "Activity")} ${d.duration_seconds ? `· ${Math.round(d.duration_seconds / 60)} min` : ""}</p>`).join("")}</details>` : ""}${block.metadata?.commits ? `<details><summary>Commits</summary>${block.metadata.commits.map((c: Row) => `<p>${esc(c.project)} · ${esc(c.message)}</p>`).join("")}</details>` : ""}${block.google_calendar_event ? `<p>${esc(block.google_calendar_event.summary || block.google_calendar_event.title)}</p>` : ""}${(block.attachments || []).map((a: Row) => button(`Open ${esc(a.original_name || "attachment")}`, "attachment", a.id, "quiet")).join("")}<div class="entry-actions">${button(block.is_hidden ? "Show" : "Hide", "hide-block", block.id, "quiet")}${button("Delete", "delete-block", block.id, "quiet danger")}</div></div></article>`;
 }
 function renderDay() {
     const blocks = dayBlocks();
     const tasks = view.tasks.filter((t: Row) => occursOn(t, date) && !(t.is_sticky && t.visible_after && date===localDate() && localTime()<t.visible_after));
-    return `<div class="page-toolbar"><div><p class="eyebrow">Your day, recorded</p><h2>${esc(new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }))}</h2></div><div class="actions">${button("←", "previous-day")}<input aria-label="Log date" id="log-date" type="date" value="${date}">${button("→", "next-day")}${button("Today", "today")}${button("Refresh sensors", "refresh-day")}</div></div>
-  <section class="workspace-card"><div class="section-heading"><h3>Log an event</h3>${button("Manage events", "page", "tasks", "quiet")}</div><div class="event-grid">${
-      tasks
+    const eventStrip = (sticky: boolean) => `<section class="event-strip ${sticky ? "sticky-events" : "daily-events"}" aria-label="${sticky ? "Repeatable events" : "Daily events"}"><div class="event-grid">${
+      tasks.filter((t: Row) => Boolean(t.is_sticky) === sticky)
           .map((t: Row) => {
               const count = blocks.filter(
                   (b: Row) =>
                       String(b.task_event?.task_definition_id) === String(t.id),
               ).length;
               return button(
-                  `<span>${esc(t.emoji || "✅")} ${esc(t.name)}</span><small>${count} / ${(t.daily_default_count || 1) * Math.max(1, t.scheduled_times?.length || 0)}</small>`,
+                  `<span>${/^data:image\/png;base64,/.test(t.icon_data || "") ? `<img class="entry-icon" alt="" src="${esc(t.icon_data)}">` : esc(t.emoji || "✅")} ${esc(t.name)}</span><small>${count}${t.is_sticky ? "" : `/${(t.daily_default_count || 1) * Math.max(1, t.scheduled_times?.length || 0)}`}</small>`,
                   "log-event",
                   t.id,
                   "event-button",
               );
           })
-          .join("") ||
-      '<p class="muted">Create an event to start tracking your routines.</p>'
-  }</div></section>
-  <form id="entry-form" class="workspace-card composer"><label for="entry-content">Add to your day</label><textarea id="entry-content" name="content" rows="3" maxlength="100000" placeholder="What happened?" required></textarea><div class="actions"><input aria-label="Entry time" type="time" step="1" name="occurred_at" value="${localTime()}" required><input aria-label="Entry emoji" name="emoji" value="📝" maxlength="32" class="emoji-input"><button type="submit">Save entry</button><small>Saved locally, then synced immediately</small></div></form>
+          .join("")
+  }</div></section>`;
+    return `<div class="page-toolbar"><div><p class="eyebrow">Your day, recorded</p><h2>${esc(new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }))}</h2></div><div class="actions">${button("←", "previous-day")}<input aria-label="Log date" id="log-date" type="date" value="${date}">${button("→", "next-day")}${button("Today", "today")}<button type="button" data-action="add-entry" aria-label="Add to your day" title="Add to your day" class="add-entry-button">+</button></div></div>
+${eventStrip(true)}
+
   <section class="workspace-card"><div class="section-heading"><h3>Timeline <small>${blocks.length} entries</small></h3>${button(showHidden ? "Hide hidden entries" : "Show hidden entries", "show-hidden", "", "quiet")}</div>${
       blocks
           .filter((b: Row) => showHidden || !b.is_hidden)
           .map((b: Row) => renderBlock(b))
           .join("") ||
       '<div class="empty-state">Your timeline is ready. Log an event or add an entry above.</div>'
-  }</section>`;
+  }</section>${eventStrip(false)}`;
 }
-function renderCalendar() {
-    const first = new Date(`${date.slice(0, 7)}-01T12:00:00`),
-        start = new Date(first);
-    const week = Number(view.user.week_starts_on ?? 1);
-    start.setDate(1 - ((first.getDay() - week + 7) % 7));
-    let days = "";
-    for (let i = 0; i < 42; i++) {
-        const d = new Date(start);
-        d.setDate(start.getDate() + i);
-        const key = localDate(d);
-        const blocks = dayBlocks(key).filter((b: Row) => !b.is_hidden);
-        days += button(
-            `<span>${d.getDate()}</span><small>${blocks.length ? `${blocks.length} entries` : ""}</small><div>${blocks
-                .slice(0, 4)
-                .map((b: Row) => esc(b.emoji || "•"))
-                .join(" ")}</div>`,
-            "date",
-            key,
-            `calendar-day ${key === localDate() ? "today" : ""} ${d.getMonth() !== first.getMonth() ? "outside" : ""}`,
-        );
+function renderCalendar(mini = false) {
+    const counts: Record<string, number> = {};
+    const logDates = new Map(view.logs.map((log: Row) => [String(log.id), String(log.log_date)]));
+    for (const block of view.blocks) {
+        const day = logDates.get(String(block.daily_log_id)) as string | undefined;
+        if (day && !block.is_hidden) counts[day] = (counts[day] || 0) + 1;
     }
-    return `<div class="page-toolbar"><h2>${first.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</h2><div class="actions">${button("←", "previous-month")}${button("Today", "today")}${button("→", "next-month")}</div></div><div class="calendar-grid">${Array.from({ length: 7 }, (_, i) => `<strong>${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][(i + week) % 7]}</strong>`).join("")}${days}</div>`;
+    const today = localDate();
+
+    const mode = mini ? "month" : calendarMode;
+    const week = Number(view.user.week_starts_on ?? 1);
+    const range = calendarRange(date, mode, week);
+    const cells = (month: string, startDate: string, length: number) => {
+        const monthHeat = calendarHeat(counts, month, today);
+        const start = new Date(`${startDate}T12:00:00`);
+        return Array.from({length}, (_, i) => {
+            const day = new Date(start); day.setDate(start.getDate() + i);
+            const key = localDate(day), count = counts[key] || 0;
+            return button(`<span>${day.getDate()}</span><small>${count ? `${count} ${count === 1 ? "entry" : "entries"}` : ""}</small>`, "date", key,
+                `calendar-day ${key === today ? "today" : ""} ${key.slice(0,7) !== month ? "outside" : ""} ${monthHeat[key] !== undefined ? `heat-${monthHeat[key]}` : ""}`);
+        }).join("");
+    };
+    const weekdays = Array.from({length: 7}, (_, i) => `<strong>${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][(i + week) % 7]}</strong>`).join("");
+    const monthGrid = (month: string) => {
+        const start = new Date(`${month}-01T12:00:00`);
+        start.setDate(1 - (start.getDay() - week + 7) % 7);
+        return `<div class="calendar-grid">${weekdays}${cells(month, localDate(start), 42)}</div>`;
+    };
+    const title = mode === "year" ? date.slice(0,4) : mode === "week" ? `${range.from} – ${range.to}` : new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {month:"long", year:"numeric"});
+    const modes = mini ? "" : `<div class="calendar-modes" role="group" aria-label="Calendar view">${[["week","▤"],["month","▦"],["year","▦▦"]].map(([key, glyph]) => `<button type="button" data-action="calendar-mode" data-id="${key}" aria-label="${key[0].toUpperCase()+key.slice(1)} view" title="${key[0].toUpperCase()+key.slice(1)} view" aria-pressed="${mode===key}" class="${mode===key ? "selected" : "secondary"}"><span aria-hidden="true">${glyph}</span></button>`).join("")}</div>`;
+    let body = mode === "week" ? `<div class="calendar-grid week-grid">${weekdays}${cells(date.slice(0,7), range.from, 7)}</div>` : monthGrid(date.slice(0,7));
+    if (mode === "year") body = `<div class="year-calendar">${Array.from({length:12}, (_, i) => {
+        const month = `${date.slice(0,4)}-${String(i+1).padStart(2,"0")}`;
+        return `<section class="year-month"><h3>${button(new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined,{month:"long"}), "calendar-month", `${month}-01`, "quiet")}</h3>${monthGrid(month)}</section>`;
+    }).join("")}</div>`;
+    return `<div class="page-toolbar"><h2>${title}</h2><div class="actions">${modes}${button("←", mini ? "previous-month" : "calendar-previous")}${button("Today","today")}${button("→", mini ? "next-month" : "calendar-next")}</div></div>${body}`;
+
 }
 function renderTasks() {
     return `<div class="page-toolbar"><div><h2>Events</h2><p class="muted">Build routines, set schedules, and log each occurrence.</p></div>${button("New event", "new-task", "", "")}</div><div class="card-grid">${view.tasks.map((t: Row) => `<article class="workspace-card"><h3>${esc(t.emoji || "✅")} ${esc(t.name)}</h3><p>${esc(t.recurrence_type || "daily")} ${t.repeat_interval > 1 ? `· every ${t.repeat_interval} days` : ""} · ${t.daily_default_count || 1} per slot</p><p class="muted">${esc((t.scheduled_times || []).join(", ") || "Any time")}${t.options?.length ? ` · ${esc(t.options.join(", "))}` : ""}</p><div class="actions">${button("Edit", "edit-task", t.id)}${button("Move up", "task-up", t.id, "quiet")}${button("Delete", "delete-task", t.id, "quiet danger")}</div></article>`).join("") || '<div class="empty-state">Create your first event.</div>'}</div>`;
@@ -334,11 +366,11 @@ function renderChat() {
         .join("")}</section>`;
 }
 function renderSensors() {
-    return `<h2>Sensors</h2><p class="muted">Automatic desktop tracking continues in the tray. Account login and tracker pairing are separate.</p><div class="actions">${button("Open desktop tracker", "tracker")}${button("Refresh today’s sensors", "refresh-day")}${button("Link GitHub", "link-github")}${button("Connect Google Calendar", "google-connect")}</div><div class="card-grid">${view.sensors.map((s: Row) => `<article class="workspace-card"><h3>${esc(s.type)}</h3><p>${esc(s.username || "")} · ${s.enabled ? "Enabled" : "Paused"}</p><p class="muted">${esc(s.last_error || s.last_checked_at || "Not checked yet")}</p><div class="actions">${button(s.enabled ? "Pause" : "Enable", "toggle-sensor", s.id)}${button("Remove", "delete-sensor", s.id, "quiet danger")}</div></article>`).join("")}</div>`;
+    return `<header class="page-header"><h2>Sensors</h2><p class="muted">Automatic desktop tracking continues in the tray. Account login and tracker pairing are separate.</p><div class="actions">${button("Refresh today’s sensors", "refresh-day")}${button("Link GitHub", "link-github")}${button("Connect Google Calendar", "google-connect")}</div></header><div class="card-grid">${view.sensors.map((s: Row) => `<article class="workspace-card"><h3>${esc(s.type)}</h3><p>${esc(s.username || "")} · ${s.enabled ? "Enabled" : "Paused"}</p><p class="muted">${esc(s.last_error || s.last_checked_at || "Not checked yet")}</p><div class="actions">${button(s.enabled ? "Pause" : "Enable", "toggle-sensor", s.id)}${button("Remove", "delete-sensor", s.id, "quiet danger")}</div></article>`).join("")}</div>`;
 }
 function renderSettings() {
     const u = view.user;
-    return `<h2>Settings</h2><div class="card-grid"><form id="settings-form" class="workspace-card"><h3>Logging preferences</h3>${select(
+    return `<header class="page-header"><h2>Settings</h2></header><div class="card-grid"><form id="settings-form" class="workspace-card"><h3>Logging preferences</h3><div class="preferences-row">${select(
         "time_format",
         "Time format",
         [
@@ -354,10 +386,10 @@ function renderSettings() {
             [0, "Sunday"],
         ],
         u.week_starts_on ?? 1,
-    )}${field("default_chat_model", "Default AI model", u.default_chat_model)}<button>Save preferences</button></form><section class="workspace-card"><h3>Your account</h3><p>${esc(u.name)}<br>${esc(u.email)}</p><p class="muted">${esc(state.account?.server)}</p><div class="actions">${button("Edit profile", "profile")}${button("Change password", "password")}${button("OpenRouter key", "api-key")}${button("Sign out", "logout", "", "quiet")}</div>${u.is_admin ? button("View users", "admin-users", "", "quiet") : ""}</section></div><section class="workspace-card"><h3>Sync</h3><p>Changes save to SQLite immediately. Foreground refresh: every 5 minutes. Background refresh: every hour. Your edits and manual actions sync immediately.</p><p>Last successful sync: ${state.last_sync ? new Date(state.last_sync).toLocaleString() : "Not yet synced"}</p>${button("Sync now", "sync", "", "")}</section>`;
+    )}${field("default_chat_model", "Default AI model", u.default_chat_model)}</div><button>Save preferences</button></form><section class="workspace-card"><h3>Your account</h3><p>${esc(u.name)}<br>${esc(u.email)}</p><p class="muted">${esc(state.account?.server)}</p><div class="actions">${button("Edit profile", "profile")}${button("Change password", "password")}${button("OpenRouter key", "api-key")}${button("Sign in again", "reauth", "", "quiet")}${button("Sign out", "logout", "", "quiet")}</div>${u.is_admin ? button("View users", "admin-users", "", "quiet") : ""}</section></div><section class="workspace-card"><h3>Sync</h3><p>Changes save to SQLite immediately. Foreground refresh: every 5 minutes. Background refresh: every hour. Your edits and manual actions sync immediately.</p><p>Last successful sync: ${state.last_sync ? new Date(state.last_sync).toLocaleString() : "Not yet synced"}</p>${button("Sync now", "sync", "", "")}</section>`;
 }
 function renderUsage() {
-    return `<h2>API usage</h2><div class="workspace-card table-scroll"><table><thead><tr><th>Time</th><th>Operation</th><th>Model</th><th>Tokens</th><th>Cost</th><th>Status</th></tr></thead><tbody>${view.api_calls
+    return `<header class="page-header"><h2>API usage</h2></header><div class="workspace-card table-scroll"><table><thead><tr><th>Time</th><th>Operation</th><th>Model</th><th>Tokens</th><th>Cost</th><th>Status</th></tr></thead><tbody>${view.api_calls
         .slice()
         .reverse()
         .map(
@@ -371,9 +403,9 @@ function render() {
     updateScreensaver({ ...view.user, logo: view.screensaver_logo });
     const tracker = document.querySelector<HTMLElement>("#tracker-app")!;
     tracker.hidden = page !== "tracker";
-    root.hidden = page === "tracker";
-    if (page === "tracker") return;
-    if (!state.account) {
+    document.body.append(tracker);
+    root.hidden = false;
+    if (!state.account && page !== "tracker") {
         root.innerHTML = `<div class="login-shell"><div class="brand-mark">TL</div><p class="eyebrow">Total Log Desktop</p><h1>Your day, wherever you are.</h1><p class="muted">Log events, build routines, and track goals—even offline after your first sync.</p><form id="login-form" class="workspace-card">${field("server", "Server", localStorage.getItem("totalLogDesktop.appUrl") || "https://total-log.com/", "url", true)}${field("email", "Email", "", "email", true)}${field("password", "Password", "", "password", true)}<button>Sign in</button></form><p id="logging-message" role="status">${esc(message)}</p><div class="actions">${button("Create account", "register", "", "quiet")}${button("Forgot password", "forgot-password", "", "quiet")}${button("Open tracker", "tracker", "", "quiet")}</div></div>`;
         bindForms();
         return;
@@ -384,12 +416,12 @@ function render() {
     const pending = (state.operations || []).filter((q) =>
         ["pending", "applied"].includes(q.status),
     ).length;
-    root.innerHTML = `<aside class="logging-sidebar"><div class="logging-brand"><div class="brand-mark">TL</div><strong>Total Log</strong></div><nav aria-label="Main navigation">${Object.entries(
+    root.innerHTML = `<aside class="logging-sidebar ${sidebarCollapsed ? "collapsed" : ""}"><button type="button" class="sidebar-toggle quiet" data-action="toggle-sidebar" aria-label="${sidebarCollapsed ? "Expand" : "Collapse"} sidebar" aria-expanded="${!sidebarCollapsed}" title="${sidebarCollapsed ? "Expand" : "Collapse"} sidebar">☰</button><div class="logging-brand"><div class="brand-mark">TL</div><strong>Total Log</strong></div><nav aria-label="Main navigation">${Object.entries(
         pages,
     )
         .map(([key, label]) =>
             button(
-                label,
+                navLabel(key, label),
                 "page",
                 key,
                 `nav-button ${page === key ? "selected" : ""}`,
@@ -397,7 +429,13 @@ function render() {
         )
         .join(
             "",
-        )}${button("Desktop tracker", "tracker", "", "nav-button")}</nav><div class="sidebar-account"><strong>${esc(view.user.name || "Your account")}</strong><small>${pending ? `${pending} edits waiting to sync` : "Saved on this PC"}</small>${button(busy ? "Syncing…" : "Sync now", "sync", "", "quiet")}</div></aside><main class="logging-main"><div class="sync-banner"><span>${busy ? "Syncing…" : state.error ? "Offline / sync needs attention" : pending ? "Changes saved locally" : "Up to date"}${state.last_sync ? ` · ${new Date(state.last_sync).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</span><span id="logging-message" role="status">${esc(message || state.error || "")}</span></div>${issues.length ? `<section class="sync-issues"><h3>${issues.length} edits need attention</h3>${issues.map((q) => `<details><summary>${esc(q.operation.kind)} · ${esc(q.receipt?.message || q.status)}</summary><pre>${esc(JSON.stringify(q.operation.data, null, 2))}</pre><div class="actions">${q.status === "rejected" ? button("Retry unchanged", "retry", q.operation.id) : ""}${button("Copy saved input", "copy-operation", q.operation.id)}${button("Keep server version / discard this edit", "discard", q.operation.id, "quiet danger")}</div></details>`).join("")}</section>` : ""}<div id="page-content">${({ day: renderDay, calendar: renderCalendar, tasks: renderTasks, goals: renderGoals, search: renderSearch, chat: renderChat, sensors: renderSensors, settings: renderSettings, usage: renderUsage }[page] || renderDay)()}</div></main>`;
+        )}${button(navLabel("tracker", "Desktop tracker"), "tracker", "", `nav-button ${page === "tracker" ? "selected" : ""}`)}</nav><div class="sync-banner"><span>${busy ? "Syncing…" : state.error ? "Offline / sync needs attention" : pending ? "Changes saved locally" : "Up to date"}${state.last_sync ? ` · ${new Date(state.last_sync).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</span><span id="logging-message" role="status">${esc(message || state.error || "")}</span></div><div class="sidebar-account"><strong>${esc(view.user.name || "Your account")}</strong>${pending ? `<small>${pending} edits waiting to sync</small>` : ""}${button(`<span aria-hidden="true">↻</span><span class="nav-label">${busy ? "Syncing…" : "Sync now"}</span>`, "sync", "", "quiet sidebar-sync")}</div></aside><main class="logging-main">${issues.length ? `<section class="sync-issues"><h3>${issues.length} edits need attention</h3>${issues.map((q) => `<details><summary>${esc(q.operation.kind)} · ${esc(q.receipt?.message || q.status)}</summary><pre>${esc(JSON.stringify(q.operation.data, null, 2))}</pre><div class="actions">${q.status === "rejected" ? button("Retry unchanged", "retry", q.operation.id) : ""}${button("Copy saved input", "copy-operation", q.operation.id)}${button("Keep server version / discard this edit", "discard", q.operation.id, "quiet danger")}</div></details>`).join("")}</section>` : ""}<div id="page-content">${page === "day" ? `<div class="day-layout"><div class="day-log">${renderDay()}</div><aside class="day-calendar" aria-label="Calendar">${renderCalendar(true)}</aside></div>` : page === "tracker" ? '<div id="tracker-host"></div>' : ({ calendar: () => renderCalendar(), tasks: renderTasks, goals: renderGoals, search: renderSearch, chat: renderChat, sensors: renderSensors, settings: renderSettings, usage: renderUsage }[page] || renderDay)()}</div></main>`;
+    if (page === "tracker") root.querySelector("#tracker-host")!.append(tracker);
+    root.querySelectorAll<HTMLElement>(".nav-button").forEach(el => {
+        const label = el.querySelector(".nav-label")?.textContent || "";
+        el.setAttribute("aria-label", label); el.title = label;
+    });
+    root.querySelector(".sidebar-sync")?.setAttribute("aria-label", busy ? "Syncing…" : "Sync now");
     bindForms();
 }
 function field(
@@ -437,9 +475,14 @@ function formData(form: HTMLFormElement): Row {
     );
     form.querySelectorAll<HTMLInputElement>("input[type=number]").forEach(
         (input) => {
+            if (!input.name) return;
             data[input.name] = input.value ? Number(input.value) : null;
         },
     );
+    if ('__location' in data) {
+        if (data.__location) data.location = JSON.parse(data.__location);
+        delete data.__location;
+    }
     return data;
 }
 function submit(
@@ -472,7 +515,7 @@ function bindForms() {
     if (state.account && page === "settings") {
         root.querySelector("#page-content")?.insertAdjacentHTML(
             "beforeend",
-            `<section class="workspace-card"><h3>Screensaver</h3><div class="actions">${button("Configure", "screensaver")}${button("Choose logo", "screensaver-logo")}${button("Start now", "screensaver-start")}</div></section>${button("Sign in again", "reauth", "", "quiet")}`,
+            `<section class="workspace-card"><h3>Screensaver</h3><div class="actions">${button("Configure", "screensaver")}${button("Choose logo", "screensaver-logo")}${button("Start now", "screensaver-start")}</div></section>`,
         );
     }
     for (const [actionName, rows] of [
@@ -485,6 +528,13 @@ function bindForms() {
             `[data-action="${actionName}"]`,
         ).forEach((button) => {
             const row = rows.find((r) => String(r.id) === button.dataset.id);
+            if (actionName === "log-event") {
+                const legacy: Row = {indigo: '#4f46e5', emerald: '#059669', amber: '#d97706', rose: '#e11d48', sky: '#0284c7'};
+                const color = /^#[0-9a-f]{6}$/i.test(row?.color || '') ? row!.color : legacy[row?.color] || '#4f46e5';
+                button.style.backgroundColor = color;
+                const rgb = [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16));
+                button.style.color = rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114 > 160 ? '#101827' : '#fff';
+            }
             if (!/^data:image\/png;base64,/.test(row?.icon_data || "")) return;
             const title =
                 actionName === "log-event"
@@ -506,9 +556,7 @@ function bindForms() {
         state = await invoke("logging_login", d);
         await sync();
     });
-    submit(root.querySelector("#entry-form"), async (d) => {
-        await save("blocks.create", { ...d, type: "text", log_date: date });
-    });
+
     submit(root.querySelector("#search-form"), async (d) => {
         search = d.query;
         render();
@@ -540,13 +588,28 @@ function dialog(
 ) {
     const element = document.createElement("dialog");
     element.className = "logging-dialog";
-    element.innerHTML = `<form><div class="section-heading"><h2>${esc(title)}</h2><button type="button" data-close class="quiet">Close</button></div><div class="form-fields">${fields}</div><p class="dialog-error" role="alert"></p><button type="submit">${label}</button></form>`;
+    element.innerHTML = `<form><header class="section-heading dialog-header"><h2>${esc(title)}</h2><button type="button" data-close class="quiet">Close</button></header><div class="dialog-body"><div class="form-fields">${fields}</div></div><footer class="dialog-footer"><p class="dialog-error" role="alert"></p><button type="button" data-cancel class="secondary">Cancel</button><button type="submit">${label}</button></footer></form>`;
     document.body.append(element);
     element.showModal();
+    enhanceEntryControls(element);
+    const entryActions = element.querySelector('.entry-actions');
+    if (entryActions) element.querySelector('.dialog-footer')!.prepend(entryActions);
+    element.querySelector('[data-cancel]')!.addEventListener('click', () => element.close());
     element
         .querySelector("[data-close]")!
         .addEventListener("click", () => element.close());
     element.addEventListener("close", () => element.remove());
+    element.addEventListener("click", async (event) => {
+        const target = (event.target as HTMLElement).closest<HTMLElement>("[data-action]");
+        if (!target) return;
+        try {
+            await action(target.dataset.action!, target.dataset.id || "");
+            if (["hide-block", "delete-block"].includes(target.dataset.action!)) element.close();
+        } catch (e) {
+            element.querySelector(".dialog-error")!.textContent = String(e);
+        }
+    });
+
     const form = element.querySelector("form")!;
     if (["New event", "Edit event", "New goal", "Edit goal"].includes(title))
         form.querySelector(".form-fields")!.insertAdjacentHTML(
@@ -743,6 +806,10 @@ function editGoal(goal?: Row) {
         },
     );
 }
+function locationFields(location?: Row) {
+    const value = location?.latitude != null && location?.longitude != null ? {latitude: location.latitude, longitude: location.longitude, location_accuracy: location.location_accuracy} : null;
+    return `<section class="location-controls"><h3>Location</h3><input type="hidden" name="__location" value="${value ? esc(JSON.stringify(value)) : ''}"><button type="button" data-location-capture class="secondary">Store current location</button><p data-location-status role="status">${value ? esc(`${value.latitude}, ${value.longitude}`) : 'No location stored'}</p><div class="location-coordinates"><input data-latitude aria-label="Latitude" placeholder="Latitude" type="number" step="any"><input data-longitude aria-label="Longitude" placeholder="Longitude" type="number" step="any"><button type="button" data-location-manual class="quiet">Use coordinates</button></div></section>`;
+}
 function logEvent(task: Row) {
     dialog(
         `Log ${task.name}`,
@@ -762,7 +829,7 @@ function logEvent(task: Row) {
                       task.scheduled_times.map((v: string) => [v, v]),
                       task.scheduled_times[0],
                   )
-                : ""),
+                : "") + textarea("notes", "Entry text") + field("emoji", "Emoji", task.emoji || "✅") + locationFields(),
         async (d) => {
             if(d.scheduled_time && dayBlocks().filter((b:Row)=>String(b.task_event?.task_definition_id)===String(task.id)&&b.task_event?.scheduled_time===d.scheduled_time).length>=Number(task.daily_default_count||1))throw new Error('This time slot has reached its daily count.');
             await save("events.create", {
@@ -774,6 +841,30 @@ function logEvent(task: Row) {
         "Log event",
     );
 }
+function showActivity(block: Row) {
+    const git = block.type === 'sensor_github';
+    const desktop = block.type === 'sensor_desktop';
+    const commits: Row[] = block.metadata?.commits || [];
+    const totals = new Map<string, number>();
+    for (const item of desktop ? block.desktop_activities || [] : [...(block.browsing_activities || []), ...(block.mobile_browsing_visits || [])]) {
+        const name = String(desktop ? item.application || item.process_name || 'Application' : item.domain || item.url || 'Website');
+        totals.set(name, (totals.get(name) || 0) + Number(item.duration_seconds || 0));
+    }
+    const duration = (seconds: number) => seconds < 60 ? 'Under 1 min' : `${Math.round(seconds / 60)} min`;
+    const total = [...totals.values()].reduce((a, b) => a + b, 0);
+    const element = document.createElement('dialog');
+    element.className = 'logging-dialog activity-dialog';
+    element.innerHTML = `<header class="section-heading dialog-header"><div><small class="sensor-label">${git ? 'GITHUB SENSOR' : desktop ? 'DESKTOP SENSOR' : 'BROWSING SENSOR'}</small><h2>${esc(git ? block.metadata?.project || commits[0]?.project || commits[0]?.repository || 'Git commits' : desktop ? 'Applications' : 'Browsing')}</h2><p class="muted">Started ${esc(clock(block.occurred_at || block.created_at))} · ${git ? `${commits.length} commit${commits.length === 1 ? '' : 's'}` : duration(total)}</p></div><button type="button" data-close>Close</button></header><div class="dialog-body"><div class="activity-list">${git ? commits.map((c, i) => `<article class="activity-item commit-item"><div class="section-heading"><span>${esc(clock(c.occurred_at || block.occurred_at))}</span><code>${esc(String(c.sha || '').slice(0, 7))}</code></div><p>${esc(c.message || '')}</p>${/^https?:\/\//i.test(c.url || c.html_url || '') ? `<button type="button" class="quiet" data-commit="${i}">Open commit</button>` : ''}</article>`).join('') : [...totals].sort((a,b) => b[1]-a[1]).map(([name, seconds]) => `<article class="activity-item"><strong>${esc(name)}</strong><span class="duration-badge">${duration(seconds)}</span></article>`).join('') || '<p>No activity data recorded.</p>'}</div>${git ? '' : `<p class="activity-footnote">${desktop ? 'Only application names, process names, and time totals are stored. Window titles and executable paths stay on your computer.' : 'Domains and time totals are shown above.'}</p>`}</div><footer class="dialog-footer"><button type="button" data-done>Done</button></footer>`;
+    element.querySelector('[data-close]')!.addEventListener('click', () => element.close());
+    element.querySelector('[data-done]')?.addEventListener('click', () => element.close());
+    element.querySelectorAll<HTMLElement>('[data-commit]').forEach(button => button.addEventListener('click', () => {
+        const c = commits[Number(button.dataset.commit)];
+        void openUrl(c.url || c.html_url).catch(error);
+    }));
+    element.addEventListener('close', () => element.remove());
+    document.body.append(element);
+    element.showModal();
+}
 async function action(action: string, id: string) {
     const block = view.blocks.find((r: Row) => String(r.id) === id),
         task = view.tasks.find((r: Row) => String(r.id) === id),
@@ -784,6 +875,36 @@ async function action(action: string, id: string) {
             "Sync this saved goal progress before editing its timeline entry.",
         );
     switch (action) {
+        case "toggle-sidebar":
+            sidebarCollapsed = !sidebarCollapsed;
+            localStorage.setItem("totalLogDesktop.sidebarCollapsed", String(sidebarCollapsed));
+            render(); break;
+        case "calendar-mode":
+            calendarMode = id; render(); break;
+        case "calendar-month":
+            date = id; calendarMode = "month"; render(); break;
+        case "calendar-previous":
+        case "calendar-next": {
+            const d = new Date(`${date}T12:00:00`), direction = action === "calendar-next" ? 1 : -1;
+            if (calendarMode === "week") d.setDate(d.getDate() + direction * 7);
+            else if (calendarMode === "year") { d.setMonth(0, 1); d.setFullYear(d.getFullYear() + direction); }
+            else { d.setDate(1); d.setMonth(d.getMonth() + direction); }
+            date = localDate(d); render(); break;
+        }
+
+        case "add-entry": {
+            const entryDate = date;
+            dialog("Add to your day",
+                textarea("content", "Entry text", "", true) +
+                field("occurred_at", "Time", localTime(), "time", true) +
+                field("emoji", "Emoji", "📝") + locationFields(),
+                async (data) => {
+                    if (String(data.content || "").length > 100000) throw new Error("Entry text must be at most 100,000 characters.");
+                    await save("blocks.create", { ...data, type: "text", log_date: entryDate });
+                }, "Save entry");
+            break;
+        }
+
         case "page":
             page = id;
             render();
@@ -818,7 +939,7 @@ async function action(action: string, id: string) {
             break;
         }
         case "sync":
-            await sync();
+            await sync(true);
             break;
         case "show-hidden":
             showHidden = !showHidden;
@@ -902,9 +1023,13 @@ async function action(action: string, id: string) {
                 await save("blocks.delete", {}, block.id);
             break;
         case "edit-block":
+            if (["sensor_desktop", "sensor_browser", "sensor_mobile_browser", "sensor_github"].includes(block.type)) {
+                showActivity(block);
+                break;
+            }
             dialog(
-                "Edit entry",
-                textarea(
+                "Entry details & edit",
+                renderBlock(block, true, true) + textarea(
                     block.task_event ? "notes" : "content",
                     "Entry text",
                     block.content,
@@ -920,7 +1045,7 @@ async function action(action: string, id: string) {
                             : localTime(),
                         "time",
                         true,
-                    ),
+                    ) + locationFields(block.task_event || block.metadata?.location),
                 async (d) => {
                     await save(
                         block.task_event ? "events.update" : "blocks.update",

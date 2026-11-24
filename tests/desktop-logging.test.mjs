@@ -5,11 +5,27 @@ import {
     occursOn,
     goalPoints,
     syncInterval,
+    calendarHeat,
+    calendarRange,
 } from "../desktop/src/logging-model.ts";
 
 const op = (kind, data, target_id = null, id = crypto.randomUUID()) => ({
     status: "pending",
     operation: { id, kind, data, target_id, edited_at: "2026-11-23T01:00:00Z" },
+});
+
+test("calendar heat uses only nonzero, nonfuture days in the displayed month", () => {
+    assert.deepEqual(calendarHeat({ '2026-11-01': 10, '2026-11-02': 30, '2026-11-03': 50,
+        '2026-11-04': 0, '2026-11-25': 100, '2026-10-31': 1000 }, '2026-11', '2026-11-24'),
+        { '2026-11-01': 0, '2026-11-02': 2, '2026-11-03': 4 });
+    assert.deepEqual(calendarHeat({'2026-11-01': 7, '2026-11-02': 7}, '2026-11', '2026-11-24'),
+        {'2026-11-01': 2, '2026-11-02': 2});
+    assert.deepEqual(calendarHeat({'2026-11-01': 0}, '2026-11', '2026-11-24'), {});
+});
+test('calendar sync ranges handle weeks crossing months and leap years', () => {
+    assert.deepEqual(calendarRange('2026-11-01', 'week', 1), {from:'2026-10-26', to:'2026-11-01'});
+    assert.deepEqual(calendarRange('2024-02-12', 'month'), {from:'2024-02-01', to:'2024-02-29'});
+    assert.deepEqual(calendarRange('2026-11-24', 'year'), {from:'2026-01-01', to:'2026-12-31'});
 });
 test("offline entry persists in the projected day and edits do not alter server snapshot", () => {
     const create = op("blocks.create", {

@@ -21,7 +21,11 @@ class LogBlockController extends Controller
             'content' => 'required|string|max:100000',
             'emoji' => 'nullable|string|max:32',
             'occurred_at' => ['nullable', \App\Support\DayTime::RULE],
-        ]);
+        ] + \App\Support\EntryLocation::rules());
+        if (isset($data['location'])) {
+            $data['metadata'] = ['location' => $data['location']];
+            unset($data['location']);
+        }
         $data['emoji'] = filled($data['emoji'] ?? null) ? $data['emoji'] : LogBlock::defaultEmojiForType($data['type']);
         $data['occurred_at'] = $dailyLog->log_date->copy()->setTimeFromTimeString($data['occurred_at'] ?? now()->format('H:i'));
         $block = $dailyLog->blocks()->create($data + ['position' => ($dailyLog->blocks()->max('position') ?? 0) + 1]);
@@ -44,7 +48,11 @@ class LogBlockController extends Controller
             'content' => 'nullable|string|max:100000',
             'emoji' => 'nullable|string|max:32',
             'occurred_at' => ['sometimes', 'required', \App\Support\DayTime::RULE],
-        ]);
+        ] + \App\Support\EntryLocation::rules());
+        if (isset($data['location'])) {
+            $data['metadata'] = array_merge($block->metadata ?? [], ['location' => $data['location']]);
+            unset($data['location']);
+        }
         if (isset($data['occurred_at'])) {
             $data['occurred_at'] = $block->dailyLog->log_date->copy()->setTimeFromTimeString($data['occurred_at']);
         }

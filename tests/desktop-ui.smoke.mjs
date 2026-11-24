@@ -57,6 +57,7 @@ await page.addInitScript(() => {
                 {
                     id: 3,
                     name: "Water",
+                    is_sticky: true,
                     emoji: "💧",
                     recurrence_type: "daily",
                     is_active: true,
@@ -66,6 +67,9 @@ await page.addInitScript(() => {
             ],
             logs: [{ id: 1, log_date: date }],
             blocks: [
+                { id: 101, daily_log_id: 1, type: 'sensor_desktop', occurred_at: `${date}T10:00:00`, desktop_activities: [{ application: 'Editor', duration_seconds: 120 }, { application: 'Editor', duration_seconds: 60 }] },
+                { id: 102, daily_log_id: 1, type: 'sensor_browser', occurred_at: `${date}T10:01:00`, browsing_activities: [{ domain: 'example.com', duration_seconds: 120 }] },
+                { id: 103, daily_log_id: 1, type: 'sensor_github', occurred_at: `${date}T10:02:00`, metadata: { commits: [{ project: 'Total Log', message: 'Update desktop', sha: 'abcdef123', url: 'https://github.com/example/project/commit/abcdef123', occurred_at: `${date}T10:02:00` }] } },
                 {
                     id: 1,
                     daily_log_id: 1,
@@ -120,6 +124,7 @@ await page.addInitScript(() => {
                 return structuredClone(fixture);
             }
             if (command === "logging_sync") {
+                window.__lastSyncScope = args.scope;
                 window.__syncCalls++;
                 throw new Error("Test offline connection");
             }
@@ -139,20 +144,52 @@ await page.addInitScript(() => {
 });
 try {
     await page.goto("http://localhost:1420");
+    await page.getByRole('button', {name:'Sync now', exact:true}).click();
+    await page.locator('#logging-message').filter({hasText:'Test offline connection'}).waitFor();
+    const dayScope = await page.evaluate(() => window.__lastSyncScope);
+    assert.equal(dayScope.from, dayScope.to);
+    await page.locator('.timeline-row').first().waitFor();
+    assert.equal(await page.locator('.event-grid').count(), 2);
+    assert.equal(await page.locator('.logging-sidebar .sync-banner').count(), 1);
+    await page.locator('.timeline-row').first().click();
+    await page.getByRole('dialog').getByLabel('Entry text').waitFor();
+    assert.equal(await page.getByRole('dialog').getByRole('button', { name: 'Hide', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).count(), 1);
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+    for (const id of [101, 102, 103]) {
+        await page.locator(`.timeline-row[data-id="${id}"]`).click();
+        assert.equal(await page.locator('dialog[open] input, dialog[open] textarea, dialog[open] details, dialog[open] [type="submit"]').count(), 0);
+        assert.ok(await page.locator('dialog[open] .activity-item').count() > 0);
+        await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+    }
     await page.getByRole("heading", { name: /Timeline/ }).waitFor();
     await page.screenshot({
         path: "desktop/dist/desktop-preview.png",
         fullPage: true,
     });
-    await page.getByLabel("Add to your day").fill("Keep my unfinished draft");
-    await page.getByRole("button", { name: "Sync now", exact: true }).click();
-    await page.locator('#logging-message').filter({hasText:'Test offline connection'}).waitFor();
-    assert.equal(
-        await page.getByLabel("Add to your day").inputValue(),
-        "Keep my unfinished draft",
-    );
+    assert.equal(await page.locator('#entry-form').count(), 0);
+    assert.equal(await page.locator('.sticky-events [data-id="3"]').count(), 1);
+    assert.equal(await page.locator('.daily-events [data-id="3"]').count(), 0);
+    assert.equal(await page.locator('.daily-events [data-id="1"]').count(), 1);
+    await page.getByRole('button', {name: 'Add to your day', exact: true}).click();
+    await page.getByRole('slider', {name: 'Time', exact: true}).focus();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('dialog[open] [name="occurred_at"]').inputValue(), '00:05');
+    await page.getByRole('button', {name: 'Now', exact: true}).click();
+    await page.getByRole('button', {name: /Choose emoji/}).click();
+    await page.getByRole('searchbox', {name: 'Search emojis'}).fill('smiling');
+    assert.ok(await page.locator('dialog[open] .emoji-grid button').count() > 0);
+    await page.locator('dialog[open] .emoji-grid button').first().click();
+    await page.getByLabel('Latitude', {exact: true}).fill('24.91');
+    await page.getByLabel('Longitude', {exact: true}).fill('121.49');
+    await page.getByRole('button', {name: 'Use coordinates'}).click();
+    await page.locator('dialog[open] .dialog-body').evaluate(el => { el.scrollTop = 0; });
+    const artwork = await page.locator('dialog[open] .time-scroller-artwork').evaluate(el => getComputedStyle(el).backgroundImage.slice(5, -2));
+    assert.equal((await page.request.get(artwork)).status(), 200, 'Time-strip artwork must load');
+    await page.screenshot({path: 'desktop/dist/entry-dialog-preview.png'});
     await page
-        .getByLabel("Add to your day")
+        .getByLabel("Entry text")
         .fill("Offline entry from smoke test");
     await page.getByRole("button", { name: "Save entry", exact: true }).click();
     await page
@@ -162,6 +199,7 @@ try {
         (await page.evaluate(() => window.__syncCalls)) > 0,
         "Saving must trigger immediate sync",
     );
+    assert.deepEqual(await page.evaluate(() => window.__fixture.operations[0].operation.data.location), {latitude: 24.91, longitude: 121.49});
     assert.equal(
         await page.evaluate(
             () =>
@@ -180,7 +218,7 @@ try {
         .click();
     await page.getByRole("heading", { name: /Stretch/ }).waitFor();
     await page.getByRole("button", { name: "Daily log", exact: true }).click();
-    await page.getByRole("button", { name: /Stretch/ }).click();
+    await page.getByRole("button", { name: /Stretch/ }).first().click();
     await page
         .getByRole("dialog")
         .getByRole("button", { name: "Log event", exact: true })
@@ -216,6 +254,27 @@ try {
     ]) {
         await page.getByRole("button", { name, exact: true }).click();
         assert.equal(await page.locator("#page-content").count(), 1);
+        if (name === 'Calendar') {
+            assert.equal(await page.getByRole('button', {name:'Week view'}).getAttribute('aria-pressed'), 'true');
+            assert.equal(await page.locator('#page-content .calendar-day').count(), 7);
+            await page.getByRole('button', {name:'Month view'}).click();
+            assert.equal(await page.locator('#page-content .calendar-day').count(), 42);
+            await page.getByRole('button', {name:'Sync now', exact:true}).click();
+            await page.locator('#logging-message').filter({hasText:'Test offline connection'}).waitFor();
+            const monthScope = await page.evaluate(() => window.__lastSyncScope);
+            assert.equal(monthScope.from.slice(-2), '01');
+            assert.equal(monthScope.from.slice(0,7), monthScope.to.slice(0,7));
+            await page.getByRole('button', {name:'Year view'}).click();
+            assert.equal(await page.locator('.year-month').count(), 12);
+        }
+        if (['Goals','Sensors','Settings','API usage'].includes(name)) {
+            assert.equal(await page.locator('#page-content > .page-header, #page-content > .page-toolbar').evaluate(el => getComputedStyle(el).position), 'sticky');
+        }
+        if (name === 'Sensors') assert.equal(await page.getByRole('button', {name:'Open desktop tracker',exact:true}).count(), 0);
+        if (name === 'Settings') {
+            assert.equal(await page.locator('.workspace-card').filter({has:page.getByRole('heading',{name:'Your account'})}).getByRole('button',{name:'Sign in again'}).count(),1);
+            assert.equal(await page.locator('.preferences-row > label').count(),3);
+        }
     }
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Configure", exact: true }).click();
@@ -242,6 +301,15 @@ try {
     await page
         .getByRole("button", { name: "Desktop tracker", exact: true })
         .click();
+    assert.equal(await page.locator('.logging-sidebar').isVisible(), true);
+    assert.equal(await page.locator('#tracker-host #tracker-app').isVisible(), true);
+    await page.getByRole('button', {name:'Collapse sidebar'}).click();
+    assert.equal(await page.locator('.logging-sidebar .sync-banner').isVisible(), false);
+    assert.equal(await page.locator('.logging-sidebar .sidebar-account strong').isVisible(), false);
+    await page.getByRole('button', {name:'Daily log', exact:true}).click();
+    assert.equal(await page.locator('.logging-sidebar').evaluate(el => el.getBoundingClientRect().width),58);
+    await page.getByRole('button', {name:'Expand sidebar'}).click();
+    await page.getByRole('button', {name:'Desktop tracker', exact:true}).click();
     await page.getByRole("button", { name: "Open log", exact: true }).click();
     assert.deepEqual(errors, []);
     console.log(

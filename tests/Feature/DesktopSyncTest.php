@@ -23,9 +23,9 @@ class DesktopSyncTest extends TestCase
         return $user;
     }
 
-    private function pull(?string $cursor = null)
+    private function pull(?string $cursor = null, ?array $scope = null)
     {
-        $response = $this->postJson('/api/mobile/desktop/pull', ['cursor' => $cursor])->assertOk();
+        $response = $this->postJson('/api/mobile/desktop/pull', array_filter(['cursor' => $cursor, 'scope' => $scope], fn ($v) => $v !== null))->assertOk();
         if ($response->baseResponse instanceof \Symfony\Component\HttpFoundation\StreamedResponse) {
             return \Illuminate\Testing\TestResponse::fromBaseResponse(new \Illuminate\Http\JsonResponse(
                 json_decode($response->streamedContent(), true, 512, JSON_THROW_ON_ERROR)
@@ -46,6 +46,26 @@ class DesktopSyncTest extends TestCase
         $this->pull($initial->json('cursor'))->assertJsonPath('reset', false)->assertJsonPath('changes', [])->assertJsonPath('deleted', []);
         $this->assertFalse(collect(DB::getQueryLog())->contains(fn ($query) => str_contains($query['query'], 'log_blocks')));
         DB::disableQueryLog();
+    }
+
+    public function test_scoped_pull_contains_only_owned_days_and_skips_unrelated_collections(): void
+    {
+        $user = $this->account();
+        foreach (['2026-10-31', '2026-11-01', '2026-11-24', '2026-12-01'] as $date) {
+            $user->dailyLogs()->create(['log_date' => $date])->blocks()->create(['type' => 'text', 'content' => $date]);
+        }
+        User::factory()->create()->dailyLogs()->create(['log_date' => '2026-11-24'])->blocks()->create(['type' => 'text', 'content' => 'Other account']);
+        DB::enableQueryLog(); DB::flushQueryLog();
+        $day = $this->pull(null, ['from' => '2026-11-24', 'to' => '2026-11-24']);
+        $queries = collect(DB::getQueryLog())->pluck('query'); DB::disableQueryLog();
+        $day->assertJsonPath('reset', true)->assertJsonPath('scope.from', '2026-11-24');
+        $this->assertCount(2, $day->json('changes'));
+        $this->assertSame('2026-11-24', collect($day->json('changes'))->firstWhere('collection', 'blocks')['value']['content']);
+        $this->assertFalse($queries->contains(fn ($sql) => str_contains($sql, '"goals"') || str_contains($sql, '"api_calls"')));
+        $month = $this->pull(null, ['from' => '2026-11-01', 'to' => '2026-11-30']);
+        $this->assertCount(4, $month->json('changes'));
+        $this->pull(null, ['from' => '2026-11-25', 'to' => '2026-11-25'])->assertJsonPath('changes', []);
+        $this->postJson('/api/mobile/desktop/pull', ['scope' => ['from' => '2026-11-24', 'to' => '2026-11-01']])->assertUnprocessable();
     }
 
     public function test_large_history_is_batched_and_api_payloads_are_not_loaded(): void
@@ -132,6 +152,30 @@ class DesktopSyncTest extends TestCase
         $this->assertFalse($collections->contains('notes'));
         $this->assertStringNotContainsString($user->password, $response->getContent());
         $this->assertStringNotContainsString('openrouter_api_key', $response->getContent());
+    }
+
+    public function test_entry_notes_and_locations_survive_sync_and_invalid_coordinates_are_rejected(): void
+    {
+        $user = $this->account();
+        $task = $user->taskDefinitions()->create(['name' => 'Walk', 'color' => '#4f46e5', 'recurrence_type' => 'daily', 'is_active' => true, 'daily_default_count' => 1]);
+        $location = ['latitude' => 24.91, 'longitude' => 121.49, 'location_accuracy' => 12];
+        $push = function ($kind, $data, $target = null) {
+            return $this->postJson('/api/mobile/sync', ['operations' => [[
+                'id' => (string) Str::uuid(), 'kind' => $kind, 'target_id' => $target,
+                'edited_at' => now()->addSecond()->utc()->toISOString(), 'data' => $data,
+            ]]])->assertOk();
+        };
+        $result = $push('events.create', ['task_definition_id' => $task->id, 'log_date' => '2026-11-24', 'occurred_at' => '14:43', 'notes' => 'By the river', 'emoji' => '🌳', 'location' => $location])->assertJsonPath('results.0.status', 'applied');
+        $event = \App\Models\TaskEvent::findOrFail($result->json('results.0.entity_id'));
+        $this->assertSame('By the river', $event->block->content);
+        $this->assertEquals(24.91, $event->latitude);
+        $result = $push('blocks.create', ['log_date' => '2026-11-24', 'occurred_at' => '14:44', 'type' => 'text', 'content' => 'A note', 'location' => $location])->assertJsonPath('results.0.status', 'applied');
+        $block = \App\Models\LogBlock::findOrFail($result->json('results.0.entity_id'));
+        $this->assertEquals($location, $block->metadata['location']);
+        $push('blocks.update', ['content' => 'Edited note', 'location' => ['latitude' => -10, 'longitude' => 20]], $block->id)->assertJsonPath('results.0.status', 'applied');
+        $this->assertEquals(-10, $block->fresh()->metadata['location']['latitude']);
+        $push('events.update', ['notes' => 'Invalid', 'location' => ['latitude' => 91, 'longitude' => 20]], $event->id)->assertJsonPath('results.0.status', 'rejected');
+        $this->assertSame('By the river', $event->block->fresh()->content);
     }
 
     public function test_recurrence_start_dates_remain_calendar_dates(): void

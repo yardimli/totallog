@@ -166,6 +166,9 @@ impl Logging {
         )
     }
     async fn sync(&self) -> Result<(), String> {
+        self.sync_scoped(None).await
+    }
+    async fn sync_scoped(&self, scope: Option<Value>) -> Result<(), String> {
         // A user edit arriving during a pull must run immediately after it, not wait for a timer.
         let _gate = self.sync_gate.lock().await;
         let (account, server, token) = self.session()?;
@@ -177,7 +180,7 @@ impl Logging {
                 params![now(), account],
             )
             .map_err(err)?;
-        let result = self.sync_account(&account, &server, &token).await;
+        let result = self.sync_account_scoped(&account, &server, &token, scope).await;
         self.db
             .lock()
             .map_err(err)?
@@ -188,7 +191,12 @@ impl Logging {
             .map_err(err)?;
         result
     }
-    async fn sync_account(&self, account: &str, server: &str, token: &str) -> Result<(), String> {
+    async fn sync_account_scoped(&self, account: &str, server: &str, token: &str, scope: Option<Value>) -> Result<(), String> {
+        // Accepted writes must be reconciled before their receipts can be removed.
+        // If edits exist outside the visible range, retain the full reconciliation path.
+        let outstanding: i64 = self.db.lock().map_err(err)?.query_row(
+            "SELECT COUNT(*) FROM outbox WHERE account=? AND status IN ('pending','applied')", [account], |r| r.get(0)).map_err(err)?;
+        let scope = if outstanding > 0 { None } else { scope };
         // Bound each request, preserve creation/dependency order, and stop at a rejected dependency.
         loop {
             let operations = {
@@ -250,12 +258,16 @@ impl Logging {
             })
             .map_err(err)?;
         let started = now();
+        let payload = match &scope {
+            Some(range) => json!({"scope": range}),
+            None => json!({"cursor": cursor}),
+        };
         let delta = self
             .request(
                 server,
                 Some(token),
                 "desktop/pull",
-                Some(&json!({"cursor":cursor})),
+                Some(&payload),
             )
             .await?;
         let expected: i64 = self
@@ -271,6 +283,13 @@ impl Logging {
                 "The server returned a different account or unsupported sync format.".into(),
             );
         }
+        if let Some(range) = &scope {
+            if delta.get("scope") != Some(range) || delta["reset"] != true {
+                return Err("The server does not support range sync yet. Deploy the updated desktop sync controller.".into());
+            }
+        } else if !delta["scope"].is_null() {
+            return Err("Unexpected scoped sync response.".into());
+        }
         let cursor = delta["cursor"].as_str().ok_or("Missing sync cursor")?;
         let changes = delta["changes"].as_array().ok_or("Missing sync changes")?;
         let deleted = delta["deleted"]
@@ -279,8 +298,11 @@ impl Logging {
         let mut db = self.db.lock().map_err(err)?;
         let tx = db.transaction().map_err(err)?;
         if delta["reset"] == true {
-            tx.execute("DELETE FROM records WHERE account=?", [account])
-                .map_err(err)?;
+            if let Some(range) = &scope {
+                replace_range(&tx, account, range)?;
+            } else {
+                tx.execute("DELETE FROM records WHERE account=?", [account]).map_err(err)?;
+            }
         }
         for row in changes {
             tx.execute("INSERT INTO records(account,collection,id,value) VALUES(?,?,?,?) ON CONFLICT(account,collection,id) DO UPDATE SET value=excluded.value",
@@ -301,7 +323,7 @@ impl Logging {
         .map_err(err)?;
         tx.execute(
             "UPDATE accounts SET cursor=?,last_sync=?,error='' WHERE id=?",
-            params![cursor, now(), account],
+            params![if scope.is_some() { None } else { Some(cursor) }, now(), account],
         )
         .map_err(err)?;
         // SQLite parses ISO UTC timestamps without relying on the PC's timezone.
@@ -311,6 +333,14 @@ impl Logging {
         tx.commit().map_err(err)?;
         Ok(())
     }
+}
+
+fn replace_range(db: &Connection, account: &str, range: &Value) -> Result<(), String> {
+    let from = range["from"].as_str().ok_or("Missing range start")?;
+    let to = range["to"].as_str().ok_or("Missing range end")?;
+    db.execute("DELETE FROM records WHERE account=?1 AND collection='blocks' AND CAST(json_extract(value,'$.daily_log_id') AS TEXT) IN (SELECT id FROM records WHERE account=?1 AND collection='logs' AND json_extract(value,'$.log_date') BETWEEN ?2 AND ?3)", params![account, from, to]).map_err(err)?;
+    db.execute("DELETE FROM records WHERE account=? AND collection='logs' AND json_extract(value,'$.log_date') BETWEEN ? AND ?", params![account, from, to]).map_err(err)?;
+    Ok(())
 }
 
 fn server_url(value: &str) -> Result<String, String> {
@@ -585,8 +615,9 @@ pub async fn logging_attachment(
 pub async fn logging_sync(
     app: tauri::AppHandle,
     state: tauri::State<'_, Logging>,
+    scope: Option<Value>,
 ) -> Result<Value, String> {
-    let result = state.sync().await;
+    let result = state.sync_scoped(scope).await;
     let _ = app.emit_to("main", "logging-updated", ());
     result?;
     state.view()
@@ -659,6 +690,50 @@ pub fn start(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[cfg(windows)]
+    fn scoped_sync_rejects_old_server_and_preserves_unrelated_cache() {
+        use tiny_http::{Header, Response, Server};
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let store = Logging::open(Path::new(":memory:")).unwrap();
+        let range = json!({"from":"2026-11-24","to":"2026-11-24"});
+        {
+            let db = store.db.lock().unwrap();
+            db.execute("INSERT INTO accounts(id,server,user_id,token,active,cursor) VALUES('one',?,1,?,1,'previous')", params![format!("http://{}/",server.server_addr()),protect(b"test").unwrap()]).unwrap();
+            db.execute("INSERT INTO records VALUES('one','logs','1','{\"id\":1,\"log_date\":\"2026-11-24\"}'),('one','logs','2','{\"id\":2,\"log_date\":\"2026-11-23\"}')",[]).unwrap();
+        }
+        let expected = range.clone();
+        let worker = std::thread::spawn(move || {
+            for supported in [false, true] {
+                let mut request = server.recv().unwrap();
+                let mut body = String::new(); request.as_reader().read_to_string(&mut body).unwrap();
+                let payload: Value = serde_json::from_str(&body).unwrap();
+                assert_eq!(payload, json!({"scope":expected}));
+                let result = json!({"schema_version":1,"user_id":1,"cursor":"new","reset":true,"scope":if supported {expected.clone()} else {Value::Null},"changes":[],"deleted":[]});
+                request.respond(Response::from_string(result.to_string()).with_header(Header::from_bytes("Content-Type","application/json").unwrap())).unwrap();
+            }
+        });
+        assert!(tauri::async_runtime::block_on(store.sync_scoped(Some(range.clone()))).is_err());
+        assert_eq!(store.view().unwrap()["snapshot"]["logs"].as_array().unwrap().len(),2);
+        tauri::async_runtime::block_on(store.sync_scoped(Some(range))).unwrap();
+        assert_eq!(store.view().unwrap()["snapshot"]["logs"][0]["id"],2);
+        assert_eq!(store.db.lock().unwrap().query_row("SELECT cursor FROM accounts",[],|r|r.get::<_,Option<String>>(0)).unwrap(),None);
+        worker.join().unwrap();
+    }
+    #[test]
+    fn scoped_replacement_preserves_other_days_and_accounts() {
+        let store = Logging::open(Path::new(":memory:")).unwrap();
+        let mut db = store.db.lock().unwrap();
+        for (account, id, day) in [("one", "1", "2026-11-24"), ("one", "2", "2026-11-23"), ("two", "3", "2026-11-24")] {
+            db.execute("INSERT INTO records VALUES(?,?,?,?)", params![account,"logs",id,json!({"id":id,"log_date":day}).to_string()]).unwrap();
+            db.execute("INSERT INTO records VALUES(?,?,?,?)", params![account,"blocks",id,json!({"id":id,"daily_log_id":id}).to_string()]).unwrap();
+        }
+        let tx = db.transaction().unwrap();
+        replace_range(&tx, "one", &json!({"from":"2026-11-24","to":"2026-11-24"})).unwrap();
+        assert_eq!(tx.query_row("SELECT COUNT(*) FROM records", [], |r| r.get::<_,i64>(0)).unwrap(),4);
+        tx.rollback().unwrap();
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM records", [], |r| r.get::<_,i64>(0)).unwrap(),6);
+    }
     use super::*;
 
     #[test]

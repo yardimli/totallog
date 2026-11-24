@@ -5,6 +5,7 @@ export default defineConfig({
   clearScreen: false,
   css: { postcss: { plugins: [] } },
   server: {
+    fs: { allow: ['.', '../resources', '../public/data'] },
     port: 1420,
     strictPort: true,
     watch: { ignored: ['**/src-tauri/**'] },

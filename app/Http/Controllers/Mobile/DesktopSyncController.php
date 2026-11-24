@@ -15,8 +15,15 @@ class DesktopSyncController extends Controller
 {
     public function pull(Request $request, GoalProgressService $progress)
     {
-        $request->validate(['cursor' => 'nullable|regex:/^[a-f0-9]{64}$/']);
+        $request->validate(['cursor' => 'nullable|regex:/^[a-f0-9]{64}$/',
+            'scope' => 'sometimes|array:from,to', 'scope.from' => 'required_with:scope|date_format:Y-m-d',
+            'scope.to' => 'required_with:scope|date_format:Y-m-d|after_or_equal:scope.from']);
+        $scope = $request->input('scope');
+        if ($scope) {
+            abort_if(\Carbon\Carbon::parse($scope['from'])->diffInDays(\Carbon\Carbon::parse($scope['to'])) > 366, 422, 'Choose a range of at most one year.');
+        }
         $prefix = 'desktop-sync:v1:'.$request->user()->id.':';
+        if ($scope) $prefix .= $scope['from'].':'.$scope['to'].':';
         $version = null;
         if (Schema::hasTable('desktop_sync_versions')) {
             $version = DB::table('desktop_sync_versions')->where('user_id', $request->user()->id)->value('version');
@@ -28,13 +35,13 @@ class DesktopSyncController extends Controller
         }
         // Hourly reconciliation also catches maintenance SQL and time-based expiry.
         $versionKey = $prefix.'version:'.($version ?? 'initial').':'.now()->utc()->format('Y-m-d-H');
-        if ($version && $request->filled('cursor') && Cache::get($versionKey) === $request->input('cursor')) {
+        if (! $scope && $version && $request->filled('cursor') && Cache::get($versionKey) === $request->input('cursor')) {
             return response()->json(['schema_version' => 1, 'user_id' => $request->user()->id,
                 'cursor' => $request->input('cursor'), 'reset' => false, 'changes' => [], 'deleted' => [],
                 'server_time' => now()->utc()->toISOString()])->header('Cache-Control', 'private, no-store');
         }
         // Iterate small database batches; never build/encode/decode the whole snapshot.
-        $progress->syncForUser($request->user());
+        if (! $scope) $progress->syncForUser($request->user());
         $time = now()->utc()->toISOString();
         $old = $request->input('cursor') ? Cache::get($prefix.$request->input('cursor')) : null;
         $spool = tmpfile();
@@ -44,7 +51,7 @@ class DesktopSyncController extends Controller
         $hashes = [];
         try {
             $first = true;
-            foreach ($this->records($request->user()) as [$collection, $id, $row]) {
+            foreach ($this->records($request->user(), $scope) as [$collection, $id, $row]) {
                 $encoded = json_encode($row, JSON_THROW_ON_ERROR);
                 $hashes[$collection][$id] = hash('sha256', $encoded);
                 if (($old[$collection][$id] ?? null) !== $hashes[$collection][$id]) {
@@ -74,7 +81,7 @@ class DesktopSyncController extends Controller
         }
 
         $header = json_encode(['schema_version' => 1, 'user_id' => $request->user()->id,
-            'cursor' => $cursor, 'reset' => $old === null, 'server_time' => $time], JSON_THROW_ON_ERROR);
+            'cursor' => $cursor, 'reset' => $old === null, 'scope' => $scope, 'server_time' => $time], JSON_THROW_ON_ERROR);
         $tail = '],"deleted":'.json_encode($deleted, JSON_THROW_ON_ERROR).'}';
         rewind($spool);
         return response()->stream(function () use ($spool, $header, $tail) {
@@ -90,8 +97,19 @@ class DesktopSyncController extends Controller
         }, 200, ['Content-Type' => 'application/json', 'Cache-Control' => 'private, no-store']);
     }
 
-    private function records(\App\Models\User $user): \Generator
+    private function records(\App\Models\User $user, ?array $scope = null): \Generator
     {
+        if ($scope) {
+            $until = \Carbon\Carbon::parse($scope['to'])->addDay()->toDateString();
+            $logs = $user->dailyLogs()->where('log_date', '>=', $scope['from'])->where('log_date', '<', $until);
+            foreach ($logs->lazyById(25) as $log) {
+                yield ['logs', (string) $log->id, $log->mergeCasts(['log_date' => 'date:Y-m-d'])];
+            }
+            $blocks = \App\Models\LogBlock::whereHas('dailyLog', fn ($q) => $q->where('user_id', $user->id)->where('log_date', '>=', $scope['from'])->where('log_date', '<', $until))
+                ->with(['taskEvent', 'attachments', 'browsingActivities', 'desktopActivities', 'mobileBrowsingVisits', 'kindleReadingProgress', 'googleCalendarEvent']);
+            foreach ($blocks->reorder()->lazyById(25) as $block) yield ['blocks', (string) $block->id, $block];
+            return;
+        }
         yield ['schema_version', 'singleton', 1];
         yield ['user', 'singleton', $user->fresh()->only('id', 'name', 'email', 'time_format', 'week_starts_on', 'default_chat_model', 'screensaver_enabled', 'screensaver_style', 'screensaver_wait_minutes', 'screensaver_speed', 'screensaver_message', 'is_admin')];
         $disk = \Illuminate\Support\Facades\Storage::disk('public');

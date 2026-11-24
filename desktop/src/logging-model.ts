@@ -18,6 +18,27 @@ export type LoggingState = {
 };
 export const syncInterval = (foreground: boolean) =>
     foreground ? 300_000 : 3_600_000;
+export function calendarRange(date: string, mode: string, weekStarts = 1) {
+    const start = new Date(`${date}T12:00:00`), end = new Date(start);
+    if (mode === 'week') {
+        start.setDate(start.getDate() - (start.getDay() - weekStarts + 7) % 7);
+        end.setTime(start.getTime()); end.setDate(end.getDate() + 6);
+    } else if (mode === 'year') {
+        start.setMonth(0, 1); end.setMonth(11, 31);
+    } else {
+        start.setDate(1); end.setMonth(end.getMonth() + 1, 0);
+    }
+    return {from: localDate(start), to: localDate(end)};
+}
+export function calendarHeat(counts: Record<string, number>, month: string, today: string): Record<string, number> {
+    const populated = Object.entries(counts).filter(([day, count]) => day.startsWith(`${month}-`) && day <= today && count > 0);
+    if (!populated.length) return {};
+    const values = populated.map(([, count]) => count);
+    const low = Math.min(...values), high = Math.max(...values);
+    return Object.fromEntries(populated.map(([day, count]) => [day,
+        low === high ? 2 : Math.round(4 * (count - low) / (high - low)),
+    ]));
+}
 export function localDate(date = new Date()): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -99,7 +120,9 @@ export function project(state: LoggingState): Row {
                     id: op.id,
                     daily_log_id: log().id,
                     type: "event",
-                    emoji: task?.emoji || "✅",
+                    emoji: data.emoji || task?.emoji || "✅",
+                    content: data.notes,
+                    icon_data: task?.icon_data,
                     _pending: true,
                     occurred_at: `${data.log_date}T${data.occurred_at || "00:00:00"}`,
                     task_event: {
@@ -108,6 +131,7 @@ export function project(state: LoggingState): Row {
                         task_name: task?.name || "Event",
                         selected_value: data.value,
                         scheduled_time: data.scheduled_time,
+                        ...data.location,
                     },
                 });
             } else {
@@ -117,6 +141,7 @@ export function project(state: LoggingState): Row {
                 if (block) {
                     block._pending = true;
                     Object.assign(block.task_event, data);
+                    if (data.location) Object.assign(block.task_event, data.location);
                     if (action === "update") {
                         block.content = data.notes;
                         block.emoji = data.emoji || block.emoji;
@@ -134,6 +159,7 @@ export function project(state: LoggingState): Row {
             const created: Row = { id, ...data, _pending: true };
             if (entity === "blocks")
                 Object.assign(created, {
+                    metadata: data.location ? {location: data.location} : undefined,
                     daily_log_id: log().id,
                     occurred_at: `${data.log_date}T${data.occurred_at || "00:00:00"}`,
                 });
@@ -194,6 +220,7 @@ export function project(state: LoggingState): Row {
                 });
             } else {
                 Object.assign(row, data);
+                if (entity === 'blocks' && data.location) row.metadata = {...row.metadata, location: data.location};
                 if (entity === "tasks") {
                     if ("options_text" in data)
                         row.options = split(data.options_text);

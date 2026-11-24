@@ -19,6 +19,15 @@ rule so fresh checkouts include the build configuration and IPC capabilities.
 
 ## Scheduling and local edits
 
+Manual Sync on Daily log downloads the selected day. Calendar Sync downloads its visible week,
+month, or year (week is the default view). These requests return only daily logs and their blocks,
+skip account-wide goal recalculation, and replace only that date range in SQLite. Other history,
+definitions, and accounts remain cached. The full-sync cursor is invalidated afterward so the next
+full reconciliation cannot mistake a partial refresh for a complete account snapshot.
+Pending/accepted edits trigger full reconciliation before their receipts are cleared. Other pages,
+automatic polls, and immediate edit syncs retain the full delta protocol. Deploy the updated
+DesktopSyncController for range support; this update does not add a database migration.
+
 - A visible, focused, non-minimized main window refreshes every five minutes.
 - An unfocused, hidden or minimized main window refreshes every hour.
 - Native Rust timers perform account sync even when WebView timers are throttled. Opening/focusing the
