@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class GoalEntry extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     protected $fillable = ['goal_id', 'goal_source_id', 'occurred_at', 'points', 'external_key', 'note'];
 
     protected $casts = ['occurred_at' => 'datetime', 'points' => 'integer'];

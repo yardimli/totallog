@@ -1,0 +1,29 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "kindle-capability",
+  "description": "Allows the dedicated Kindle window to report a title during a manual sync",
+  "local": false,
+  "windows": ["kindle"],
+  "remote": {
+    "urls": [
+      "https://read.amazon.com/*",
+      "https://read.amazon.ca/*",
+      "https://read.amazon.co.uk/*",
+      "https://read.amazon.com.au/*",
+      "https://read.amazon.de/*",
+      "https://read.amazon.fr/*",
+      "https://read.amazon.es/*",
+      "https://read.amazon.it/*",
+      "https://read.amazon.co.jp/*",
+      "https://read.amazon.in/*",
+      "https://read.amazon.com.br/*",
+      "https://read.amazon.com.mx/*",
+      "https://read.amazon.nl/*"
+    ]
+  },
+  "permissions": [
+    "allow-kindle-book-observed",
+    "allow-kindle-manual-sync-ready",
+    "allow-kindle-status-observed"
+  ]
+}

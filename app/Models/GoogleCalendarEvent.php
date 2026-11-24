@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class GoogleCalendarEvent extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     protected $fillable = [
         'sensor_id', 'user_id', 'daily_log_id', 'log_block_id', 'calendar_id', 'google_event_id', 'event_key',
         'title', 'description', 'location', 'html_link', 'starts_at', 'ends_at', 'is_all_day', 'etag',

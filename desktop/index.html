@@ -7,7 +7,8 @@
     <title>Total Log Desktop</title>
   </head>
   <body>
-    <main class="shell">
+    <div id="logging-app"></div>
+    <main id="tracker-app" class="shell" hidden>
       <header class="masthead">
         <div class="brand-mark" aria-hidden="true">TL</div>
         <div class="brand-copy">
@@ -18,6 +19,7 @@
           </div>
         </div>
         <div class="masthead-actions">
+          <button id="open-logging" type="button" class="quiet compact">Open log</button>
           <span id="server-health" class="connection-health" data-state="waiting"><span class="connection-dot" aria-hidden="true"></span><span id="server-health-label">Checking connection</span></span>
           <button id="connection-toggle" type="button" class="quiet compact" aria-expanded="false" aria-controls="connection-panel">Connection settings</button>
           <span id="platform-badge" class="badge">Starting…</span>
@@ -38,7 +40,7 @@
             <label><input type="radio" name="url-mode" value="custom" /> Custom</label>
           </fieldset>
           <label for="app-url">Total Log URL</label>
-          <input id="app-url" type="url" value="https://captainslog.playground.computer/" spellcheck="false" />
+          <input id="app-url" type="url" value="https://total-log.com/" spellcheck="false" />
           <label for="pairing-key">Pairing key</label>
           <div class="input-row">
             <input id="pairing-key" type="password" autocomplete="off" spellcheck="false" />

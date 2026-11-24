@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-logging"
+description = "Allows the local main window to use its account-scoped logging database and sync API."
+commands.allow = ["logging_state", "logging_login", "logging_logout", "logging_enqueue", "logging_resolve", "logging_correct", "logging_attachment", "logging_sync", "logging_online"]

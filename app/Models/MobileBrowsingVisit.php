@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class MobileBrowsingVisit extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     protected $fillable = [
         'user_id', 'daily_log_id', 'log_block_id', 'domain', 'visit_key', 'visited_at',
     ];

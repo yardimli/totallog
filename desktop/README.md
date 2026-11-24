@@ -1,12 +1,30 @@
 # Total Log Desktop
 
-This is the Tauri 2 + Rust desktop sensor for Total Log. It currently provides:
+This is the Tauri 2 + Rust desktop logging app for Total Log. Version 0.6 adds:
+
+- a daily timeline, text entries, recurring events and event definitions;
+- calendar navigation, local history search, goals and progress history;
+- account preferences, custom icons, local screensavers, API usage and sensor management;
+- online AI chat with explicit confirmation of proposed changes, profile/password settings and GitHub linking;
+- account-scoped SQLite storage and a durable offline mutation outbox;
+- immediate upload after edits, five-minute foreground refresh and hourly background refresh;
+- incremental server downloads, visible rejected/conflicting edits, and offline image viewing after the first download.
+
+The Notes workspace is intentionally excluded. Account deletion and shared demo reset controls are not included.
+Google authorization and account registration/password recovery open the website in the browser.
+
+**Deploy the server changes and run `php artisan migrate --force` on the server before installing this release.**
+The new `desktop_sync_versions` table enables cheap unchanged polls. See [desktop sync details](../docs/desktop-sync.md).
+
+Sign in using your Total Log account at `https://total-log.com/`. The first download needs a connection;
+afterward, logging and browsing downloaded history work offline. Tracker pairing remains separate under
+**Desktop tracker → Connection settings**. The existing tracker still provides:
 
 - foreground Windows application, executable path, and window-title detection;
 - Windows idle-time detection;
 - a tray icon that keeps monitoring after the settings window closes;
 - dedicated desktop-sensor pairing with the Laravel application;
-- local foreground-application sampling with one aggregated upload every five minutes while the computer is active;
+- local foreground-application sampling with aggregated foreground/background uploads;
 - per-application totals for the last five minutes, last hour, and today;
 - a dedicated Kindle Cloud Reader window whose Amazon session remains in WebView2;
 - manual Kindle library capture that logs the first displayed book's title and author without collecting reading position;

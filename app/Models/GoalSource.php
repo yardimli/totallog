@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class GoalSource extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     protected $fillable = ['goal_id', 'type', 'task_definition_id', 'github_project'];
 
     public function goal(): BelongsTo

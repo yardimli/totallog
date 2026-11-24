@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class KindleReadingProgress extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     protected $table = 'kindle_reading_progress';
 
     protected $fillable = [

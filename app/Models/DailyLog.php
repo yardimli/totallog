@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DailyLog extends Model
 {
+    use \App\Models\Concerns\AtomicMobileWrites;
+
     protected $fillable = ['user_id', 'log_date'];
 
     protected $casts = ['log_date' => 'date'];

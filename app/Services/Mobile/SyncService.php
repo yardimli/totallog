@@ -141,7 +141,7 @@ class SyncService
                 'sensors.delete' => $target->delete(),
                 default => abort(422, 'Unsupported operation.'),
             };
-            if ($operation['kind'] === 'events.create' && $result instanceof \Illuminate\Http\JsonResponse) {
+            if ($operation['kind'] === 'events.create' && ! isset($data['occurred_at']) && $result instanceof \Illuminate\Http\JsonResponse) {
                 $created = TaskEvent::find($result->getData(true)['event']['id']);
                 $at = Carbon::parse($data['log_date'])->setTimeFrom($edited->copy()->setTimezone(config('app.timezone')));
                 $created->update(['occurred_at' => $at]);

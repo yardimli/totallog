@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  publicDir: '../public/screensavers',
   clearScreen: false,
   css: { postcss: { plugins: [] } },
   server: {

@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Permissions for the Total Log settings window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-logging",
+    "opener:default",
+    "allow-current-activity",
+    "allow-configure-browser-bridge",
+    "allow-check-server-connection",
+    "allow-send-activity-batch",
+    "allow-send-kindle-book",
+    "allow-open-kindle",
+    "allow-sync-kindle"
+  ]
+}

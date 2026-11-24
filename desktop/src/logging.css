@@ -1,0 +1,477 @@
+[hidden] {
+    display: none !important;
+}
+#logging-app .page-toolbar .actions {
+    margin: 0;
+    align-items: center;
+    gap: 7px;
+}
+#logging-app .page-toolbar input {
+    width: 145px;
+}
+#logging-app .composer .emoji-input {
+    width: 55px;
+}
+#logging-app .composer input[type="time"] {
+    width: 135px;
+}
+#logging-app .composer .actions {
+    align-items: center;
+}
+#logging-app button {
+    font-weight: 650;
+}
+#logging-app button.quiet {
+    background: transparent;
+}
+#logging-app .page-toolbar {
+    margin-bottom: 22px;
+}
+#logging-app .composer textarea {
+    min-height: 75px;
+}
+.desktop-screensaver {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: #000;
+}
+.desktop-screensaver iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    pointer-events: none;
+}
+.entry-icon {
+    width: 24px;
+    height: 24px;
+    vertical-align: middle;
+    object-fit: contain;
+}
+#logging-app {
+    display: flex;
+    height: 100vh;
+    background: #0b1220;
+    color: #dce5f3;
+    font-size: 14px;
+}
+#logging-app h1 {
+    font-size: 28px;
+    letter-spacing: -0.04em;
+}
+#logging-app h2 {
+    font-size: 24px;
+    letter-spacing: -0.03em;
+}
+h3 {
+    font-size: 15px;
+    margin: 0 0 14px;
+}
+.logging-sidebar {
+    width: 200px;
+    flex-shrink: 0;
+    border-right: 1px solid #263043;
+    padding: 24px 14px;
+    display: flex;
+    flex-direction: column;
+    background: #0e1728;
+}
+.logging-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 35px;
+    padding: 0 8px;
+    font-size: 18px;
+}
+.logging-sidebar nav {
+    display: grid;
+    gap: 4px;
+}
+.nav-button {
+    text-align: left;
+    background: none;
+    color: #a7b6cd;
+    font-size: 14px;
+    font-weight: 500;
+    border: 0;
+    border-radius: 8px;
+    padding: 11px 15px;
+}
+.nav-button.selected {
+    color: #b5d5ff;
+    background: #203452;
+}
+.nav-button:hover {
+    background: #1b2a40;
+}
+.sidebar-account {
+    margin-top: auto;
+    display: grid;
+    gap: 8px;
+    padding: 20px 10px 0;
+    color: #a7b6cd;
+}
+.sidebar-account small {
+    font-size: 11px;
+}
+.logging-main {
+    flex: 1;
+    min-width: 0;
+    overflow: auto;
+    padding: 0 32px 40px;
+}
+.sync-banner {
+    min-height: 56px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: space-between;
+    color: #8da3c3;
+    font-size: 11px;
+    border-bottom: 1px solid #263043;
+    margin-bottom: 28px;
+}
+.sync-banner span:last-child {
+    max-width: 60%;
+    color: #e8bc79;
+}
+.page-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+}
+.page-toolbar h2 {
+    margin-bottom: 4px;
+}
+.actions {
+    flex-wrap: wrap;
+}
+.page-toolbar input {
+    width: 145px;
+}
+.workspace-card {
+    background: #111d30;
+    border: 1px solid #26374f;
+    border-radius: 12px;
+    padding: 22px;
+    margin: 0 0 20px;
+}
+.workspace-card p {
+    line-height: 1.6;
+}
+.workspace-card small,
+.workspace-card .muted {
+    color: #93a8c5;
+}
+.section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.section-heading h3 {
+    margin: 0 0 12px;
+}
+.section-heading h3 small {
+    margin-left: 10px;
+    font-size: 11px;
+    font-weight: 400;
+}
+.event-grid {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.event-button {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    background: #203453;
+    color: #e1eafa;
+    border: 1px solid #355278;
+    border-radius: 9px;
+    text-align: left;
+    min-width: 130px;
+    padding: 14px;
+}
+.event-button small {
+    font-weight: 400;
+    color: #9db5d4;
+    font-size: 11px;
+}
+#logging-app input,
+#logging-app textarea,
+#logging-app select,
+.logging-dialog input,
+.logging-dialog textarea,
+.logging-dialog select {
+    background: #0b1423;
+    color: #e0e8f6;
+    border: 1px solid #354760;
+    border-radius: 7px;
+    padding: 10px;
+    font: inherit;
+    max-width: 100%;
+}
+textarea {
+    resize: vertical;
+    width: 100%;
+}
+select {
+    width: 100%;
+}
+label {
+    display: grid;
+    gap: 7px;
+    margin-bottom: 15px;
+}
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+.checkbox-label input {
+    width: auto;
+}
+.composer .emoji-input {
+    width: 55px;
+}
+.composer input[type="time"] {
+    width: 145px;
+}
+.composer small {
+    font-size: 11px;
+}
+.log-entry {
+    display: flex;
+    gap: 18px;
+    padding: 20px 0;
+    border-bottom: 1px solid #26344a;
+}
+.log-entry:last-child {
+    border: 0;
+}
+.entry-time {
+    width: 65px;
+    flex-shrink: 0;
+    color: #8299bb;
+    font-size: 12px;
+    padding-top: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.entry-body {
+    min-width: 0;
+    flex: 1;
+}
+.entry-heading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 600;
+}
+.entry-content {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.7;
+    margin: 10px 0;
+}
+.entry-value {
+    margin: 9px 0;
+    color: #9bc5ff;
+}
+.entry-actions {
+    display: flex;
+    gap: 5px;
+    margin-top: 8px;
+}
+.entry-actions .quiet {
+    font-size: 11px;
+    padding: 5px 8px;
+    color: #8ea7c9;
+}
+.pending-label {
+    font-size: 10px;
+    color: #e2bd7c !important;
+}
+.is-hidden {
+    opacity: 0.55;
+}
+.danger {
+    color: #ed9fa9 !important;
+}
+.empty-state {
+    padding: 35px 12px;
+    color: #8299bb;
+    text-align: center;
+    line-height: 1.6;
+}
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px;
+}
+.card-grid .workspace-card {
+    margin: 0;
+}
+.goal-number {
+    font-size: 30px;
+}
+.goal-number small {
+    font-size: 12px;
+}
+progress {
+    width: 100%;
+    height: 9px;
+    accent-color: #67b69c;
+    margin-bottom: 20px;
+}
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 7px;
+}
+.calendar-grid > strong {
+    text-align: center;
+    font-size: 11px;
+    color: #8ea7c9;
+    padding: 8px;
+}
+.calendar-day {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 9px;
+    min-height: 110px;
+    background: #152138;
+    color: #c8d8ed;
+    padding: 12px 8px;
+    border: 1px solid #26374f;
+}
+.calendar-day small {
+    font-size: 10px;
+    font-weight: 400;
+    color: #91a8cb;
+}
+.calendar-day.today {
+    border-color: #7caeff;
+    background: #203b61;
+}
+.calendar-day.outside {
+    opacity: 0.4;
+}
+.logging-dialog {
+    width: min(560px, calc(100vw - 32px));
+    max-height: 90vh;
+    border: 1px solid #40516c;
+    border-radius: 14px;
+    background: #111d30;
+    color: #e0e8f6;
+    padding: 26px;
+    overflow: auto;
+}
+.logging-dialog::backdrop {
+    background: #020712b8;
+}
+.logging-dialog .form-fields {
+    display: grid;
+    gap: 2px;
+}
+.logging-dialog .section-heading {
+    margin-bottom: 20px;
+}
+.dialog-error {
+    color: #ed9fa9;
+    white-space: pre-wrap;
+}
+.logging-dialog pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.login-shell {
+    width: min(480px, calc(100vw - 40px));
+    margin: auto;
+    overflow: auto;
+    max-height: 100vh;
+    padding: 30px 0;
+}
+.login-shell > .brand-mark {
+    margin-bottom: 24px;
+}
+.login-shell h1 {
+    margin-bottom: 16px;
+}
+.login-shell .workspace-card {
+    margin-top: 25px;
+}
+.login-shell form button {
+    width: 100%;
+}
+.sync-issues {
+    background: #342817;
+    border: 1px solid #705530;
+    border-radius: 9px;
+    padding: 18px;
+    margin-bottom: 20px;
+}
+.sync-issues pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+details {
+    margin-top: 12px;
+}
+summary {
+    cursor: pointer;
+    color: #9fb8d9;
+}
+.table-scroll {
+    overflow: auto;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+th,
+td {
+    text-align: left;
+    padding: 12px;
+    border-bottom: 1px solid #26374f;
+}
+@media (max-width: 850px) {
+    .logging-sidebar {
+        width: 150px;
+        padding: 20px 8px;
+    }
+    .logging-brand {
+        font-size: 15px;
+        gap: 7px;
+    }
+    .logging-main {
+        padding: 0 16px 25px;
+    }
+    .nav-button {
+        padding: 10px;
+        font-size: 12px;
+    }
+    .calendar-day {
+        min-height: 90px;
+    }
+    .entry-time {
+        width: 50px;
+    }
+    .sync-banner {
+        flex-wrap: wrap;
+        padding: 10px 0;
+        gap: 7px;
+    }
+    .sync-banner span:last-child {
+        max-width: 100%;
+    }
+}

@@ -2,6 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import './styles.css';
+import './logging-ui';
+import {syncInterval} from './logging-model';
 import { trackedSeconds, type ActivitySnapshot } from './activity-tracking';
 
 type KindleBook = {
@@ -48,7 +50,8 @@ const PENDING_KEY = 'totalLogDesktop.pendingActivity';
 const OUTBOX_KEY = 'totalLogDesktop.activityOutbox';
 const LAST_BATCH_KEY = 'totalLogDesktop.lastActivityBatchAt';
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
-const HOSTED_URL = 'https://captainslog.playground.computer/';
+let desktopForeground = document.hasFocus();
+const HOSTED_URL = 'https://total-log.com/';
 const LOCALHOST_URL = 'http://127.0.0.1:8016/';
 let activityHistory = readSlices(HISTORY_KEY);
 const savedOutbox = readOutbox();
@@ -218,7 +221,7 @@ function collectActivity(snapshot: ActivitySnapshot) {
   }
   previousSnapshot = snapshot;
   renderActivityList();
-  if (Date.now() - lastBatchAt >= FIVE_MINUTES_MS) uploadActivityBatch();
+  if (Date.now() - lastBatchAt >= syncInterval(desktopForeground)) uploadActivityBatch();
 }
 
 function overlappingSeconds(slice: ActivitySlice, start: number, end: number): number {
@@ -290,7 +293,7 @@ async function uploadActivityBatch() {
   if (activityUploadRunning || localStorage.getItem('totalLogDesktop.syncEnabled') !== 'true') return;
   lastBatchAt = Date.now();
   localStorage.setItem(LAST_BATCH_KEY, String(lastBatchAt));
-  if (!pendingBatch && !pendingActivity.length) return;
+  if (!pendingBatch && !pendingActivity.length) { await checkServerConnection(); return; }
   activityUploadRunning = true;
   try {
     if (!pendingBatch) {
@@ -471,6 +474,7 @@ document.querySelector('#kindle-sync')?.addEventListener('click', async () => {
 async function bootstrap() {
   await configureBrowserBridge();
   await Promise.all([
+    listen<boolean>('desktop-foreground', event => { desktopForeground = event.payload; }),
     listen<ActivitySnapshot>('activity-update', event => render(event.payload)),
     listen<KindleBook>('kindle-book', event => uploadKindleBook(event.payload)),
     listen<BrowserExtensionReport>('browser-extension-status', event => renderExtensionHealth(event.payload)),
@@ -490,11 +494,11 @@ async function bootstrap() {
   if (localStorage.getItem('totalLogDesktop.syncEnabled') === 'true') await checkServerConnection();
 }
 
-window.setInterval(() => checkServerConnection(), 60 * 1000);
+window.addEventListener('logging-user-sync', () => { void uploadActivityBatch(); });
 window.setInterval(() => {
   renderActivityList();
   renderExtensionHealth();
-  if (Date.now() - lastBatchAt >= FIVE_MINUTES_MS) uploadActivityBatch();
+  if (Date.now() - lastBatchAt >= syncInterval(desktopForeground)) uploadActivityBatch();
 }, 10_000);
 
 bootstrap().catch(error => {

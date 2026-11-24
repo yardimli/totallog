@@ -45,6 +45,7 @@ Route::prefix('mobile')->group(function () {
         Route::post('/admin/reset-demo', [\App\Http\Controllers\Mobile\AccountController::class, 'resetDemo']);
         Route::post('/google/connect', [\App\Http\Controllers\Mobile\GoogleController::class, 'start']);
         Route::get('/snapshot', [\App\Http\Controllers\Mobile\SyncController::class, 'snapshot']);
+        Route::post('/desktop/pull', [\App\Http\Controllers\Mobile\DesktopSyncController::class, 'pull']);
         Route::post('/sync', [\App\Http\Controllers\Mobile\SyncController::class, 'push']);
         Route::get('/attachments/{attachment}', [\App\Http\Controllers\AttachmentController::class, 'show']);
         Route::post('/settings', function (Request $request) {

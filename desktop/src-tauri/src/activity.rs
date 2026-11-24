@@ -44,9 +44,12 @@ pub fn browser_tracking_allowed(snapshot: &ActivitySnapshot) -> bool {
     if !snapshot.supported {
         return true; // Other platforms rely on the extension's focus/idle checks.
     }
-    snapshot.process_id != 0 && snapshot.idle_seconds < 180
-        && matches!(snapshot.application.to_ascii_lowercase().as_str(),
-            "chrome" | "msedge" | "brave" | "vivaldi" | "opera" | "chromium" | "firefox")
+    snapshot.process_id != 0
+        && snapshot.idle_seconds < 180
+        && matches!(
+            snapshot.application.to_ascii_lowercase().as_str(),
+            "chrome" | "msedge" | "brave" | "vivaldi" | "opera" | "chromium" | "firefox"
+        )
 }
 
 #[cfg(test)]
@@ -56,8 +59,13 @@ mod tests {
     #[test]
     fn bridge_requires_an_active_foreground_browser() {
         let mut snapshot = ActivitySnapshot {
-            application: "chrome".into(), executable: "chrome.exe".into(), window_title: String::new(),
-            process_id: 1, idle_seconds: 0, captured_at_unix_ms: 0, supported: true,
+            application: "chrome".into(),
+            executable: "chrome.exe".into(),
+            window_title: String::new(),
+            process_id: 1,
+            idle_seconds: 0,
+            captured_at_unix_ms: 0,
+            supported: true,
         };
         assert!(browser_tracking_allowed(&snapshot));
         snapshot.idle_seconds = 180;

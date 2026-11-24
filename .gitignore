@@ -24,6 +24,11 @@ yarn-error.log
 /.idea
 /.vscode
 *.json
+!/desktop/package.json
+!/desktop/package-lock.json
+!/desktop/tsconfig.json
+!/desktop/src-tauri/tauri.conf.json
+!/desktop/src-tauri/capabilities/*.json
 !/public/totallog-chrome-extension/manifest.json
 !/public/totallog-chrome-extension/manifest.json
 !/public/data/

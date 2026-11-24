@@ -47,7 +47,7 @@ class SyncController extends Controller
             'screensaver_logo' => $user->screensaver_logo_path && \Illuminate\Support\Facades\Storage::disk('public')->exists($user->screensaver_logo_path) ? 'data:image/png;base64,'.base64_encode(\Illuminate\Support\Facades\Storage::disk('public')->get($user->screensaver_logo_path)) : null,
             'schema_version' => 1,
             'user' => $user->fresh()->only('id', 'name', 'email', 'time_format', 'week_starts_on', 'default_chat_model', 'screensaver_enabled', 'screensaver_style', 'screensaver_wait_minutes', 'screensaver_speed', 'screensaver_message', 'is_admin'),
-            'tasks' => $user->taskDefinitions()->orderBy('position')->orderBy('id')->get(),
+            'tasks' => $user->taskDefinitions()->orderBy('position')->orderBy('id')->get()->each(fn ($task) => $task->mergeCasts(['repeat_start_date' => 'date:Y-m-d'])),
             // Calendar dates are not instants: preserve their database day across timezones.
             'goals' => $user->goals()->with(['sources', 'entries'])->get()->each(fn ($goal) => $goal->mergeCasts(['start_date' => 'date:Y-m-d', 'end_date' => 'date:Y-m-d'])),
             'logs' => $user->dailyLogs()->orderBy('log_date')->get()->each(fn ($log) => $log->mergeCasts(['log_date' => 'date:Y-m-d'])),

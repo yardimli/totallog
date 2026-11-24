@@ -1,5 +1,6 @@
 mod activity;
 mod browser_bridge;
+mod logging;
 
 use browser_bridge::{BridgeConfig, BrowserBridge};
 use serde::{Deserialize, Serialize};
@@ -322,6 +323,15 @@ pub fn run() {
         .manage(KindleSyncState::default())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            logging::logging_state,
+            logging::logging_login,
+            logging::logging_logout,
+            logging::logging_enqueue,
+            logging::logging_resolve,
+            logging::logging_correct,
+            logging::logging_attachment,
+            logging::logging_sync,
+            logging::logging_online,
             current_activity,
             configure_browser_bridge,
             check_server_connection,
@@ -335,6 +345,10 @@ pub fn run() {
             kindle_status_observed,
         ])
         .setup(move |app| {
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            app.manage(logging::Logging::open(&data_dir.join("logging.sqlite3"))?);
+            logging::start(app.handle().clone());
             setup_bridge.start(app.handle().clone());
             let show = MenuItem::with_id(app, "show", "Open Total Log", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -366,9 +380,21 @@ pub fn run() {
                 .build(app)?;
 
             let app_handle = app.handle().clone();
-            thread::spawn(move || loop {
-                let _ = app_handle.emit("activity-update", activity::capture());
-                thread::sleep(Duration::from_secs(2));
+            thread::spawn(move || {
+                let mut previous_foreground = None;
+                loop {
+                    let foreground = app_handle.get_webview_window("main").is_some_and(|w| {
+                        w.is_visible().unwrap_or(false)
+                            && !w.is_minimized().unwrap_or(true)
+                            && w.is_focused().unwrap_or(false)
+                    });
+                    if previous_foreground != Some(foreground) {
+                        let _ = app_handle.emit_to("main", "desktop-foreground", foreground);
+                        previous_foreground = Some(foreground);
+                    }
+                    let _ = app_handle.emit("activity-update", activity::capture());
+                    thread::sleep(Duration::from_secs(2));
+                }
             });
             Ok(())
         })
