@@ -9,7 +9,7 @@ content is ordinary local SQLite data. Back up the application-data directory wh
 ## Deployment
 
 1. Deploy the PHP changes, including the new desktop pull endpoint and change observer.
-2. Run `php artisan migrate --force` on the server. This adds the per-account change-version table.
+2. Review pending migrations before running `php artisan migrate` on the server. The desktop migration adds the per-account change-version table.
 3. Build/install desktop 0.6.0 with `cd desktop; npm install; npm run desktop:build`.
 4. Quit the previous app from its tray menu before installing. Sign in and let the first download complete.
 
@@ -41,9 +41,12 @@ are excluded. Images download only when opened and are then cached locally.
 Each relevant Eloquent model write invalidates a per-account version inside the model transaction.
 An unchanged poll reads that small version and returns empty changes: no history serialization or goal
 recalculation. Nested sensor records, goal entries and source changes invalidate their owner's version.
-When changed, the server builds the existing mobile snapshot and compares record hashes against the
-prior cursor, sending only changed records and deletion markers. This bounds transfer, although rebuilding
-a changed account still costs work proportional to its history. Hash manifests expire after seven days;
+When changed, the server reads records in batches of 25 and compares hashes against the prior cursor.
+Changed records are spooled to a temporary file and streamed as the existing JSON response, avoiding
+multiple in-memory copies of the entire history. API request/response metadata is excluded in SQL.
+The temporary file is closed after the response; no database migration or EXE rebuild is needed for this fix.
+Work and hash-manifest memory still grow with history, and a single record's nested relationships must fit in memory.
+Hash manifests expire after seven days;
 an expired/unknown cursor returns a full reset. A reset replaces only cached server records, never the outbox.
 An hourly reconciliation catches maintenance SQL that bypasses model observers and time-based expiry.
 

@@ -13,7 +13,7 @@ use Illuminate\Support\Str;
 /** Content-addressed deltas: nested updates and cascade deletions are included. */
 class DesktopSyncController extends Controller
 {
-    public function pull(Request $request, SyncController $sync, GoalProgressService $progress)
+    public function pull(Request $request, GoalProgressService $progress)
     {
         $request->validate(['cursor' => 'nullable|regex:/^[a-f0-9]{64}$/']);
         $prefix = 'desktop-sync:v1:'.$request->user()->id.':';
@@ -33,41 +33,36 @@ class DesktopSyncController extends Controller
                 'cursor' => $request->input('cursor'), 'reset' => false, 'changes' => [], 'deleted' => [],
                 'server_time' => now()->utc()->toISOString()])->header('Cache-Control', 'private, no-store');
         }
-        // Use the same owned, redacted representation as the mobile client.
-        $snapshotRequest = clone $request;
-        $snapshotRequest->headers->remove('If-None-Match');
-        $snapshot = $sync->snapshot($snapshotRequest, $progress)->getData(true);
-        $time = $snapshot['server_time'];
-        unset($snapshot['server_time'], $snapshot['revisions']);
-        $rows = [];
-        foreach ($snapshot as $collection => $value) {
-            if (in_array($collection, ['user', 'screensaver_logo', 'schema_version'], true)) {
-                $rows[$collection]['singleton'] = $value;
-            } else {
-                foreach ($value as $row) {
-                    $rows[$collection][(string) $row['id']] = $row;
-                }
-                $rows[$collection] ??= [];
-            }
+        // Iterate small database batches; never build/encode/decode the whole snapshot.
+        $progress->syncForUser($request->user());
+        $time = now()->utc()->toISOString();
+        $old = $request->input('cursor') ? Cache::get($prefix.$request->input('cursor')) : null;
+        $spool = tmpfile();
+        if ($spool === false) {
+            throw new \RuntimeException('Unable to prepare sync download.');
         }
         $hashes = [];
-        foreach ($rows as $collection => $values) {
-            foreach ($values as $id => $row) {
-                $hashes[$collection][$id] = hash('sha256', json_encode($row));
-            }
-            $hashes[$collection] ??= [];
-        }
-        $cursor = hash('sha256', json_encode($hashes));
-        $old = $request->input('cursor') ? Cache::get($prefix.$request->input('cursor')) : null;
-        $changes = [];
-        $deleted = [];
-        foreach ($rows as $collection => $values) {
-            foreach ($values as $id => $row) {
+        try {
+            $first = true;
+            foreach ($this->records($request->user()) as [$collection, $id, $row]) {
+                $encoded = json_encode($row, JSON_THROW_ON_ERROR);
+                $hashes[$collection][$id] = hash('sha256', $encoded);
                 if (($old[$collection][$id] ?? null) !== $hashes[$collection][$id]) {
-                    $changes[] = ['collection' => $collection, 'id' => (string) $id, 'value' => $row];
+                    $change = ($first ? '' : ',').'{"collection":'.json_encode($collection).',"id":'.json_encode((string) $id).',"value":'.$encoded.'}';
+                    if (fwrite($spool, $change) !== strlen($change)) {
+                        throw new \RuntimeException('Unable to write sync download.');
+                    }
+                    $first = false;
                 }
             }
-            foreach (array_diff(array_keys($old[$collection] ?? []), array_keys($values)) as $id) {
+        } catch (\Throwable $e) {
+            fclose($spool);
+            throw $e;
+        }
+        $cursor = hash('sha256', json_encode($hashes));
+        $deleted = [];
+        foreach ($old ?? [] as $collection => $values) {
+            foreach (array_diff(array_keys($values), array_keys($hashes[$collection] ?? [])) as $id) {
                 $deleted[] = ['collection' => $collection, 'id' => (string) $id];
             }
         }
@@ -78,8 +73,51 @@ class DesktopSyncController extends Controller
             Cache::put($versionKey, $cursor, now()->addHours(2));
         }
 
-        return response()->json(['schema_version' => 1, 'user_id' => $request->user()->id,
-            'cursor' => $cursor, 'reset' => $old === null, 'changes' => $changes,
-            'deleted' => $deleted, 'server_time' => $time])->header('Cache-Control', 'private, no-store');
+        $header = json_encode(['schema_version' => 1, 'user_id' => $request->user()->id,
+            'cursor' => $cursor, 'reset' => $old === null, 'server_time' => $time], JSON_THROW_ON_ERROR);
+        $tail = '],"deleted":'.json_encode($deleted, JSON_THROW_ON_ERROR).'}';
+        rewind($spool);
+        return response()->stream(function () use ($spool, $header, $tail) {
+            try {
+                echo substr($header, 0, -1).',"changes":[';
+                while (! feof($spool)) {
+                    echo fread($spool, 65536);
+                }
+                echo $tail;
+            } finally {
+                fclose($spool);
+            }
+        }, 200, ['Content-Type' => 'application/json', 'Cache-Control' => 'private, no-store']);
+    }
+
+    private function records(\App\Models\User $user): \Generator
+    {
+        yield ['schema_version', 'singleton', 1];
+        yield ['user', 'singleton', $user->fresh()->only('id', 'name', 'email', 'time_format', 'week_starts_on', 'default_chat_model', 'screensaver_enabled', 'screensaver_style', 'screensaver_wait_minutes', 'screensaver_speed', 'screensaver_message', 'is_admin')];
+        $disk = \Illuminate\Support\Facades\Storage::disk('public');
+        yield ['screensaver_logo', 'singleton', $user->screensaver_logo_path && $disk->exists($user->screensaver_logo_path)
+            ? 'data:image/png;base64,'.base64_encode($disk->get($user->screensaver_logo_path)) : null];
+        $queries = [
+            'tasks' => $user->taskDefinitions(),
+            'goals' => $user->goals()->with(['sources', 'entries']),
+            'logs' => $user->dailyLogs(),
+            'blocks' => \App\Models\LogBlock::whereHas('dailyLog', fn ($q) => $q->where('user_id', $user->id))
+                ->with(['taskEvent', 'attachments', 'browsingActivities', 'desktopActivities', 'mobileBrowsingVisits', 'kindleReadingProgress', 'googleCalendarEvent']),
+            'sensors' => $user->sensors()->select('id', 'type', 'username', 'enabled', 'last_checked_at', 'last_error', 'updated_at'),
+            'chat_proposals' => \App\Models\ChatActionProposal::where('user_id', $user->id)->where('status', 'pending')->where('expires_at', '>', now())->select('id', 'daily_log_id', 'summary', 'expires_at'),
+            // Do not hydrate potentially huge AI request/response metadata.
+            'api_calls' => \App\Models\ApiCall::where('user_id', $user->id)->select('id', 'operation', 'model', 'total_tokens', 'cost', 'created_at', 'status_code', 'error'),
+        ];
+        foreach ($queries as $collection => $query) {
+            foreach ($query->reorder()->lazyById(25) as $row) {
+                $casts = match ($collection) {
+                    'tasks' => ['repeat_start_date' => 'date:Y-m-d'],
+                    'goals' => ['start_date' => 'date:Y-m-d', 'end_date' => 'date:Y-m-d'],
+                    'logs' => ['log_date' => 'date:Y-m-d'],
+                    default => [],
+                };
+                yield [$collection, (string) $row->id, $row->mergeCasts($casts)];
+            }
+        }
     }
 }

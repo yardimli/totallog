@@ -25,7 +25,13 @@ class DesktopSyncTest extends TestCase
 
     private function pull(?string $cursor = null)
     {
-        return $this->postJson('/api/mobile/desktop/pull', ['cursor' => $cursor])->assertOk();
+        $response = $this->postJson('/api/mobile/desktop/pull', ['cursor' => $cursor])->assertOk();
+        if ($response->baseResponse instanceof \Symfony\Component\HttpFoundation\StreamedResponse) {
+            return \Illuminate\Testing\TestResponse::fromBaseResponse(new \Illuminate\Http\JsonResponse(
+                json_decode($response->streamedContent(), true, 512, JSON_THROW_ON_ERROR)
+            ));
+        }
+        return $response;
     }
 
     public function test_initial_download_and_cheap_unchanged_poll(): void
@@ -40,6 +46,28 @@ class DesktopSyncTest extends TestCase
         $this->pull($initial->json('cursor'))->assertJsonPath('reset', false)->assertJsonPath('changes', [])->assertJsonPath('deleted', []);
         $this->assertFalse(collect(DB::getQueryLog())->contains(fn ($query) => str_contains($query['query'], 'log_blocks')));
         DB::disableQueryLog();
+    }
+
+    public function test_large_history_is_batched_and_api_payloads_are_not_loaded(): void
+    {
+        $user = $this->account();
+        $log = $user->dailyLogs()->create(['log_date' => '2026-11-24']);
+        $rows = [];
+        for ($i = 0; $i < 61; $i++) {
+            $rows[] = ['daily_log_id' => $log->id, 'type' => 'text', 'content' => str_repeat('x', 32768), 'position' => $i];
+        }
+        DB::table('log_blocks')->insert($rows);
+        \App\Models\ApiCall::create(['user_id' => $user->id, 'operation' => 'chat', 'metadata' => ['private_payload' => str_repeat('secret', 200000)]]);
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+        $response = $this->pull();
+        $queries = collect(DB::getQueryLog())->pluck('query');
+        DB::disableQueryLog();
+        $this->assertCount(61, collect($response->json('changes'))->where('collection', 'blocks'));
+        $this->assertFalse($queries->contains(fn ($sql) => str_contains($sql, 'select * from "api_calls"')));
+        $this->assertGreaterThanOrEqual(3, $queries->filter(fn ($sql) => str_contains($sql, 'from "log_blocks"') && str_contains($sql, 'limit 25'))->count());
+        $api = collect($response->json('changes'))->firstWhere('collection', 'api_calls');
+        $this->assertArrayNotHasKey('metadata', $api['value']);
     }
 
     public function test_nested_sensor_update_and_cascade_deletion_are_downloaded(): void

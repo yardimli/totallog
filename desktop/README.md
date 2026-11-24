@@ -13,7 +13,7 @@ This is the Tauri 2 + Rust desktop logging app for Total Log. Version 0.6 adds:
 The Notes workspace is intentionally excluded. Account deletion and shared demo reset controls are not included.
 Google authorization and account registration/password recovery open the website in the browser.
 
-**Deploy the server changes and run `php artisan migrate --force` on the server before installing this release.**
+**Deploy the server changes and review pending migrations before running `php artisan migrate` on the server.**
 The new `desktop_sync_versions` table enables cheap unchanged polls. See [desktop sync details](../docs/desktop-sync.md).
 
 Sign in using your Total Log account at `https://total-log.com/`. The first download needs a connection;
