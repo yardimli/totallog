@@ -374,6 +374,30 @@ class SensorTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_invalid_desktop_batch_rolls_back_prior_activity_and_sync_changes(): void
+    {
+        $user = User::factory()->create();
+        $sensor = Sensor::create(['user_id' => $user->id, 'type' => Sensor::DESKTOP, 'enabled' => true]);
+        $version = DB::table('desktop_sync_versions')->where('user_id', $user->id)->value('version');
+        $level = DB::transactionLevel();
+        $increment = ['application' => 'Code', 'process_name' => 'Code.exe',
+            'started_at' => now()->subMinutes(2)->toIso8601String(),
+            'ended_at' => now()->subMinute()->toIso8601String(), 'duration_seconds' => 60];
+        try {
+            app(\App\Services\DesktopActivityRecorder::class)->recordBatch($sensor, 'rollback-test', [
+                $increment, [...$increment, 'duration_seconds' => 300],
+            ]);
+            $this->fail('Expected invalid duration to reject the whole batch.');
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $this->assertArrayHasKey('activities', $exception->errors());
+        }
+        $this->assertDatabaseCount('desktop_activities', 0);
+        $this->assertDatabaseCount('daily_logs', 0);
+        $this->assertDatabaseCount('log_blocks', 0);
+        $this->assertSame($version, DB::table('desktop_sync_versions')->where('user_id', $user->id)->value('version'));
+        $this->assertSame($level, DB::transactionLevel());
+    }
+
     public function test_desktop_pairing_key_accepts_browser_extension_data_forwarded_by_the_local_bridge(): void
     {
         Carbon::setTestNow('2026-09-03 10:05:00');

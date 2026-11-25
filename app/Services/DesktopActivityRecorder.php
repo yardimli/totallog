@@ -74,7 +74,7 @@ class DesktopActivityRecorder
             $sensor->update(['last_checked_at' => now(), 'last_error' => null]);
 
             return $activity;
-        });
+        }, 3);
     }
 
     public function recordBatch(Sensor $sensor, string $clientId, array $increments): Collection
@@ -126,7 +126,7 @@ class DesktopActivityRecorder
             $sensor->update(['last_checked_at' => now(), 'last_error' => null]);
 
             return $recorded;
-        });
+        }, 3);
     }
 
     public function finalizeStale(User $user, ?Carbon $at = null): void
