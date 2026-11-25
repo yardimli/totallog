@@ -1,6 +1,7 @@
 mod activity;
 mod browser_bridge;
 mod logging;
+mod regional;
 
 use browser_bridge::{BridgeConfig, BrowserBridge};
 use serde::{Deserialize, Serialize};
@@ -323,7 +324,9 @@ pub fn run() {
         .manage(KindleSyncState::default())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            regional::system_date_formats,
             logging::logging_state,
+            logging::logging_reset_transfer_stats,
             logging::logging_login,
             logging::logging_logout,
             logging::logging_enqueue,

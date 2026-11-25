@@ -20,14 +20,16 @@ class TaskEventController extends Controller
     {
         $startedAt = hrtime(true);
         abort_unless($dailyLog->user_id === $request->user()->id && $task->user_id === $request->user()->id, 403);
-        abort_unless($task->is_active && $task->occursOn($dailyLog->log_date), 422, 'This event is not scheduled for this day.');
+        abort_unless($task->is_active, 422, 'This event is inactive.');
         $data = $request->validate([
+            'manual_entry' => 'sometimes|boolean',
             'notes' => 'nullable|string|max:100000',
             'emoji' => 'nullable|string|max:32',
             'value' => [empty($task->options) ? 'nullable' : 'required', 'nullable', 'string', 'max:100'],
             'scheduled_time' => ['nullable', \App\Support\DayTime::RULE],
             'occurred_at' => ['nullable', \App\Support\DayTime::RULE],
         ] + \App\Support\EntryLocation::rules());
+        abort_unless(($data['manual_entry'] ?? false) || $task->occursOn($dailyLog->log_date), 422, 'This event is not scheduled for this day.');
         if (! empty($task->options) && ! in_array($data['value'] ?? null, $task->options, true)) {
             abort(422, 'Choose a valid value.');
         }
@@ -76,10 +78,16 @@ class TaskEventController extends Controller
         $this->authorizeEvent($request, $event);
         $goalEntry = $this->manualGoalEntry($request, $event);
         $data = $request->validate([
+            'value' => 'sometimes|nullable|string|max:100',
             'notes' => 'nullable|string|max:100000',
             'emoji' => 'nullable|string|max:32',
             'occurred_at' => ['sometimes', 'required', \App\Support\DayTime::RULE],
         ] + \App\Support\EntryLocation::rules());
+        if (array_key_exists('value', $data)) {
+            $task = TaskDefinition::where('user_id', $request->user()->id)->find($event->task_definition_id);
+            abort_if($task && ! empty($task->options) && ! in_array($data['value'], $task->options, true), 422, 'Choose a valid value.');
+            $event->update(['selected_value' => $data['value']]);
+        }
         if (isset($data['location'])) {
             $event->update($data['location']);
         }

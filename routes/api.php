@@ -53,6 +53,15 @@ Route::prefix('mobile')->group(function () {
 
             return response()->json(['message' => 'Settings saved.']);
         });
+        Route::post('/location/reverse', function (Request $request) {
+            $data = $request->validate([
+                'latitude' => 'required|numeric|between:-90,90',
+                'longitude' => 'required|numeric|between:-180,180',
+            ]);
+            $place = app(\App\Services\NominatimReverseGeocoder::class)->reverse((float) $data['latitude'], (float) $data['longitude']);
+
+            return response()->json($place ?? ['city' => null, 'suburb' => null]);
+        })->middleware('throttle:30,1');
         Route::get('/models', [\App\Http\Controllers\OpenRouterController::class, 'models']);
         Route::post('/refresh-day/{date}', function (Request $request, string $date) {
             validator(['date' => $date], ['date' => 'required|date_format:Y-m-d'])->validate();

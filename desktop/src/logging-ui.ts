@@ -1,3 +1,8 @@
+import {themes, currentTheme, applyTheme} from './theme';
+import {enhanceEventSetup} from './event-setup';
+import {systemFormatsReady, systemDate, systemTime, systemDateTime} from './system-format';
+import {enhanceEntryLocation} from './entry-location';
+import {goalStrip, goalList, goalDetails, shiftGoalPeriod, enhanceGoalSetup} from './goal-ui';
 import { invoke } from "@tauri-apps/api/core";
 import { enhanceEntryControls } from './entry-controls';
 import { listen } from "@tauri-apps/api/event";
@@ -5,6 +10,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
     project,
     occursOn,
+    scheduledSlots,
+    quickEventAvailable,
     localDate,
     localTime,
     goalPoints,
@@ -36,9 +43,10 @@ const root = document.querySelector<HTMLElement>("#logging-app")!;
 let state: LoggingState = { account: null };
 let view: Row = project(state);
 let page = "day";
+let selectedGoal = "";
 let calendarMode = "week";
 let sidebarCollapsed = localStorage.getItem("totalLogDesktop.sidebarCollapsed") === "true";
-const navIcons: Record<string, string> = { day: "☷", calendar: "▦", tasks: "✓", goals: "◎", search: "⌕", chat: "◌", sensors: "◉", settings: "⚙", usage: "▥", tracker: "▣" };
+const navIcons: Record<string, string> = { day: "☷", calendar: "▦", tasks: "✓", goals: "◎", search: "⌕", chat: "◌", sensors: "◉", settings: "⚙", usage: "▥", tracker: "▣", kindle: "▤" };
 const navLabel = (key: string, label: string) => `<span class="nav-icon" aria-hidden="true">${navIcons[key]}</span><span class="nav-label">${label}</span>`;
 
 let date = localDate();
@@ -49,6 +57,21 @@ let again = false;
 let againManual = true;
 let message = "";
 let models: Row[] = [];
+let mutationVersion = 0;
+let renderedPageKey = '';
+let accentedEntry: {id:string,event:boolean,until:number} | null = null;
+let accentTimer: ReturnType<typeof setTimeout>;
+function accentRow(scroll = false) {
+    if(!accentedEntry || Date.now() >= accentedEntry.until) return;
+    const id = String(state.aliases?.[accentedEntry.id] || accentedEntry.id);
+    const block = view.blocks.find((b:Row) => String(accentedEntry!.event ? b.task_event?.id : b.id) === id || String(b.id) === accentedEntry!.id);
+    if(!block) return;
+    const row = root.querySelector<HTMLElement>(`.timeline-row[data-id="${CSS.escape(String(block.id))}"]`);
+    if(!row) return;
+    row.classList.add('entry-accent');
+    if(scroll) row.scrollIntoView({block:'center',behavior:'instant'});
+}
+
 const pages: Record<string, string> = {
     day: "Daily log",
     calendar: "Calendar",
@@ -59,6 +82,7 @@ const pages: Record<string, string> = {
     sensors: "Sensors",
     settings: "Settings",
     usage: "API usage",
+    kindle: "Kindle",
 };
 const button = (
     label: string,
@@ -76,6 +100,7 @@ function error(e: unknown) {
     status(String(e instanceof Error ? e.message : e));
 }
 async function reload() {
+    await systemFormatsReady;
     const drafts = Array.from(
         root.querySelectorAll<HTMLFormElement>("form[id]"),
     ).map((form) => ({ id: form.id, values: formData(form) }));
@@ -83,7 +108,10 @@ async function reload() {
         HTMLInputElement | HTMLTextAreaElement | null;
     const focusName = active?.name,
         focusForm = active?.form?.id;
-    state = await invoke<LoggingState>("logging_state");
+    const version = mutationVersion;
+    const loaded = await invoke<LoggingState>("logging_state");
+    if (version !== mutationVersion) return reload();
+    state = loaded;
     view = project(state);
     render();
     for (const draft of drafts) {
@@ -106,7 +134,7 @@ async function reload() {
     if (focusForm && focusName)
         root.querySelector<HTMLFormElement>(`#${focusForm}`)
             ?.querySelector<HTMLElement>(`[name="${focusName}"]`)
-            ?.focus();
+            ?.focus({preventScroll:true});
 }
 
 async function sync(manual = false) {
@@ -137,7 +165,7 @@ async function sync(manual = false) {
     }
 }
 
-async function save(kind: string, data: Row, target: unknown = null) {
+async function save(kind: string, data: Row, target: unknown = null, deferred=false) {
     if (!state.account) throw new Error("Sign in before logging.");
     const operation = {
         id: crypto.randomUUID(),
@@ -148,16 +176,30 @@ async function save(kind: string, data: Row, target: unknown = null) {
             Date.now() + (state.clock_offset || 0),
         ).toISOString(),
     };
-    state = await invoke<LoggingState>("logging_enqueue", {
-        account: state.account.id,
+    const account = state.account.id;
+    await invoke<void>("logging_enqueue", {
+        account,
         operation,
     });
-    window.dispatchEvent(new Event("logging-user-sync"));
+    if(state.account?.id !== account) return;
+    mutationVersion++;
+    if(!(state.operations || []).some(q=>q.operation.id === operation.id)) {
+        state.operations = [...(state.operations || []), {operation: {...operation, target_id: target as string | number | null}, status:'pending'}];
+    }
+    if(!deferred) window.dispatchEvent(new Event("logging-user-sync"));
     view = project(state);
+    if(['blocks.create','blocks.update','events.create','events.update','goals.progress'].includes(kind)) {
+        accentedEntry = {id:String(kind.endsWith('.create') || kind==='goals.progress' ? operation.id : target),event:kind.startsWith('events.'),until:Date.now()+3000};
+        clearTimeout(accentTimer);
+        accentTimer=setTimeout(()=>{accentedEntry=null;root.querySelectorAll('.entry-accent').forEach(el=>el.classList.remove('entry-accent'));},3000);
+        requestAnimationFrame(()=>accentRow(true));
+    }
+    if(deferred) return operation.id;
     message = "Saved.";
     render();
     // User edits bypass the periodic timer. The native outbox survives an unavailable server.
     void sync();
+    return operation.id;
 }
 async function online(path: string, data: Row | null = {}) {
     if (
@@ -197,18 +239,7 @@ function blockDate(block: Row) {
             ?.log_date || date
     );
 }
-function clock(value: unknown) {
-    const raw = String(value || "");
-    if (!raw) return "";
-    const time = raw.includes("T")
-        ? raw.endsWith("Z")
-            ? new Date(raw).toTimeString().slice(0, 5)
-            : raw.slice(11, 16)
-        : raw.slice(11, 16);
-    if (view.user.time_format !== "12") return time;
-    const [h, m] = time.split(":").map(Number);
-    return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
-}
+function clock(value: unknown) { return value ? systemTime(String(value)) : ''; }
 function renderBlock(block: Row, withDate = false, expanded = false) {
     const event = block.task_event;
     const title =
@@ -226,7 +257,7 @@ function renderBlock(block: Row, withDate = false, expanded = false) {
         )[block.type] ||
         String(block.type).replaceAll("_", " ");
     if (!expanded) return button(
-        `<span class="entry-time">${withDate ? esc(blockDate(block)) + " " : ""}${esc(clock(block.occurred_at || block.created_at))}</span><span class="row-title">${esc(block.emoji || "•")} ${esc(title)}</span><span class="row-preview">${esc([event?.selected_value, block.content].filter(Boolean).join(" · "))}</span>${block._pending ? '<small class="pending-label">Local</small>' : ""}${block.is_hidden ? "<small>Hidden</small>" : ""}`,
+        `<span class="entry-time">${withDate ? esc(systemDate(blockDate(block))) + " " : ""}${esc(clock(block.occurred_at || block.created_at))}</span><span class="row-title">${esc(block.emoji || "•")} ${esc(title)}</span><span class="row-preview">${esc([event?.selected_value, block.content].filter(Boolean).join(" · "))}</span>${block._pending ? '<small class="pending-label">Local</small>' : ""}${block.is_hidden ? "<small>Hidden</small>" : ""}`,
         "edit-block", block.id, `timeline-row ${block.is_hidden ? "is-hidden" : ""}`);
     const details = [
         ...(block.desktop_activities || []),
@@ -234,11 +265,25 @@ function renderBlock(block: Row, withDate = false, expanded = false) {
         ...(block.mobile_browsing_visits || []),
         ...(block.kindle_reading_progress || []),
     ];
-    return `<article class="log-entry ${block.is_hidden ? "is-hidden" : ""}"><div class="entry-time">${withDate ? button(esc(blockDate(block)), "date", blockDate(block), "quiet") : ""}${esc(clock(block.occurred_at || block.created_at))}</div><div class="entry-body"><div class="entry-heading"><span>${esc(block.emoji || "•")} ${esc(title)}</span>${block._pending ? '<small class="pending-label">Saved locally</small>' : ""}${block.is_hidden ? "<small>Hidden</small>" : ""}</div>${event?.selected_value ? `<p class="entry-value">${esc(event.selected_value)}</p>` : ""}${block.content ? `<div class="entry-content">${esc(block.content)}</div>` : ""}${event?.city ? `<small>${esc([event.suburb, event.city].filter(Boolean).join(", "))}</small>` : ""}${details.length ? `<details><summary>${details.length} activity details</summary>${details.map((d: Row) => `<p>${esc(d.application || d.domain || d.title || d.book_title || d.url || "Activity")} ${d.duration_seconds ? `· ${Math.round(d.duration_seconds / 60)} min` : ""}</p>`).join("")}</details>` : ""}${block.metadata?.commits ? `<details><summary>Commits</summary>${block.metadata.commits.map((c: Row) => `<p>${esc(c.project)} · ${esc(c.message)}</p>`).join("")}</details>` : ""}${block.google_calendar_event ? `<p>${esc(block.google_calendar_event.summary || block.google_calendar_event.title)}</p>` : ""}${(block.attachments || []).map((a: Row) => button(`Open ${esc(a.original_name || "attachment")}`, "attachment", a.id, "quiet")).join("")}<div class="entry-actions">${button(block.is_hidden ? "Show" : "Hide", "hide-block", block.id, "quiet")}${button("Delete", "delete-block", block.id, "quiet danger")}</div></div></article>`;
+    return `<article class="log-entry ${block.is_hidden ? "is-hidden" : ""}"><div class="entry-time">${withDate ? button(esc(systemDate(blockDate(block))), "date", blockDate(block), "quiet") : ""}${esc(clock(block.occurred_at || block.created_at))}</div><div class="entry-body"><div class="entry-heading"><span>${esc(block.emoji || "•")} ${esc(title)}</span>${block._pending ? '<small class="pending-label">Saved locally</small>' : ""}${block.is_hidden ? "<small>Hidden</small>" : ""}</div>${event?.selected_value ? `<p class="entry-value">${esc(event.selected_value)}</p>` : ""}${block.content ? `<div class="entry-content">${esc(block.content)}</div>` : ""}${event?.city ? `<small>${esc([event.suburb, event.city].filter(Boolean).join(", "))}</small>` : ""}${details.length ? `<details><summary>${details.length} activity details</summary>${details.map((d: Row) => `<p>${esc(d.application || d.domain || d.title || d.book_title || d.url || "Activity")} ${d.duration_seconds ? `· ${Math.round(d.duration_seconds / 60)} min` : ""}</p>`).join("")}</details>` : ""}${block.metadata?.commits ? `<details><summary>Commits</summary>${block.metadata.commits.map((c: Row) => `<p>${esc(c.project)} · ${esc(c.message)}</p>`).join("")}</details>` : ""}${block.google_calendar_event ? `<p>${esc(block.google_calendar_event.summary || block.google_calendar_event.title)}</p>` : ""}${(block.attachments || []).map((a: Row) => button(`Open ${esc(a.original_name || "attachment")}`, "attachment", a.id, "quiet")).join("")}<div class="entry-actions">${button(block.is_hidden ? "Show" : "Hide", "hide-block", block.id, "quiet")}${button("Delete", "delete-block", block.id, "quiet danger")}</div></div></article>`;
+}
+function allEventsMenu(blocks:Row[]) {
+    return `<details class="all-events-menu"><summary role="button" aria-label="Add defined event" title="Add a defined event">☑ Events ▾</summary><div class="all-events-options" aria-label="Defined events">${view.tasks.filter((t:Row)=>t.is_active!==false).map((t:Row)=>{
+        const count=blocks.filter(b=>String(b.task_event?.task_definition_id)===String(t.id)).length;
+        const color=/^#[0-9a-f]{6}$/i.test(t.color||'')?t.color:'#4f46e5';
+        return button(`<span class="event-color-dot" style="background:${color}"></span><span class="event-menu-icon">${t.icon_data?`<img alt="" src="${esc(t.icon_data)}">`:esc(t.emoji||'✅')}</span><span class="event-menu-copy"><strong>${esc(t.name)} <small>${count}</small></strong><span>${t.scheduled_times?.length?esc(t.scheduled_times.map((time:string)=>systemTime(`${date}T${time}`)).join(', ')):'Any time'}</span></span>`,'log-any-event',t.id,'event-menu-option');
+    }).join('') || '<p class="muted">No events defined yet.</p>'}</div></details>`;
 }
 function renderDay() {
     const blocks = dayBlocks();
-    const tasks = view.tasks.filter((t: Row) => occursOn(t, date) && !(t.is_sticky && t.visible_after && date===localDate() && localTime()<t.visible_after));
+    const eventCounts = new Map<string,number>();
+    for(const block of blocks) if(block.task_event) {
+        const id=String(block.task_event.task_definition_id);
+        eventCounts.set(id,(eventCounts.get(id) || 0)+1);
+    }
+    const tasks = view.tasks.filter((t: Row) => occursOn(t, date)
+        && quickEventAvailable(t,eventCounts.get(String(t.id)) || 0)
+        && !(t.is_sticky && t.visible_after && date===localDate() && localTime()<t.visible_after));
     const eventStrip = (sticky: boolean) => `<section class="event-strip ${sticky ? "sticky-events" : "daily-events"}" aria-label="${sticky ? "Repeatable events" : "Daily events"}"><div class="event-grid">${
       tasks.filter((t: Row) => Boolean(t.is_sticky) === sticky)
           .map((t: Row) => {
@@ -255,14 +300,20 @@ function renderDay() {
           })
           .join("")
   }</div></section>`;
-    return `<div class="page-toolbar"><div><p class="eyebrow">Your day, recorded</p><h2>${esc(new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }))}</h2></div><div class="actions">${button("←", "previous-day")}<input aria-label="Log date" id="log-date" type="date" value="${date}">${button("→", "next-day")}${button("Today", "today")}<button type="button" data-action="add-entry" aria-label="Add to your day" title="Add to your day" class="add-entry-button">+</button></div></div>
+    const timeline: {time:string,html:string}[] = blocks.filter((b:Row)=>showHidden || !b.is_hidden).map((b:Row)=>({
+        time:localTime(new Date(b.occurred_at || b.created_at)), html:renderBlock(b)
+    }));
+    for(const slot of scheduledSlots(view.tasks,blocks,date)) {
+        const t=slot.task;
+        timeline.push({time:slot.time,html:`<div class="scheduled-event"><span class="entry-time">${esc(systemTime(`${date}T${slot.time}`))}</span><button type="button" data-action="log-event" data-id="${esc(t.id)}" data-slot="${esc(slot.time)}" class="event-button scheduled-button"><span><i class="unchecked-box" aria-hidden="true"></i>${t.icon_data ? `<img class="entry-icon" alt="" src="${esc(t.icon_data)}">` : esc(t.emoji || "✅")} ${esc(t.name)}</span><small>${slot.count}</small></button></div>`});
+    }
+    timeline.sort((a,b)=>a.time.localeCompare(b.time));
+    return `<div class="page-toolbar day-toolbar"><div><h2>${esc(systemDate(date, { weekday: "long", month: "long", day: "numeric" }))}</h2></div><div class="actions">${button("←", "previous-day")}<input aria-label="Log date" id="log-date" type="date" value="${date}">${button("→", "next-day")}${button("Today", "today")}${allEventsMenu(blocks)}<button type="button" data-action="add-entry" aria-label="Add to your day" title="Add to your day" class="add-entry-button">+</button></div></div>
 ${eventStrip(true)}
+${goalStrip(view.goals,date,Number(view.user.week_starts_on ?? 1),true)}
 
   <section class="workspace-card"><div class="section-heading"><h3>Timeline <small>${blocks.length} entries</small></h3>${button(showHidden ? "Hide hidden entries" : "Show hidden entries", "show-hidden", "", "quiet")}</div>${
-      blocks
-          .filter((b: Row) => showHidden || !b.is_hidden)
-          .map((b: Row) => renderBlock(b))
-          .join("") ||
+      timeline.map(item=>item.html).join("") ||
       '<div class="empty-state">Your timeline is ready. Log an event or add an entry above.</div>'
   }</section>${eventStrip(false)}`;
 }
@@ -294,42 +345,29 @@ function renderCalendar(mini = false) {
         start.setDate(1 - (start.getDay() - week + 7) % 7);
         return `<div class="calendar-grid">${weekdays}${cells(month, localDate(start), 42)}</div>`;
     };
-    const title = mode === "year" ? date.slice(0,4) : mode === "week" ? `${range.from} – ${range.to}` : new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {month:"long", year:"numeric"});
+    const title = mode === "year" ? date.slice(0,4) : mode === "week" ? `${systemDate(range.from)} – ${systemDate(range.to)}` : systemDate(date, {month:"long", year:"numeric"});
     const modes = mini ? "" : `<div class="calendar-modes" role="group" aria-label="Calendar view">${[["week","▤"],["month","▦"],["year","▦▦"]].map(([key, glyph]) => `<button type="button" data-action="calendar-mode" data-id="${key}" aria-label="${key[0].toUpperCase()+key.slice(1)} view" title="${key[0].toUpperCase()+key.slice(1)} view" aria-pressed="${mode===key}" class="${mode===key ? "selected" : "secondary"}"><span aria-hidden="true">${glyph}</span></button>`).join("")}</div>`;
-    let body = mode === "week" ? `<div class="calendar-grid week-grid">${weekdays}${cells(date.slice(0,7), range.from, 7)}</div>` : monthGrid(date.slice(0,7));
+    let body = mode === "week" ? `${goalStrip(view.goals,date,week)}<div class="calendar-grid week-grid">${Array.from({length:7},(_,i)=>{
+        const d = new Date(`${range.from}T12:00:00`); d.setDate(d.getDate()+i);
+        const key=localDate(d), count=counts[key]||0;
+        return button(`<span class="week-day-heading"><small>${systemDate(d,{weekday:"short"})}</small><span>${d.getDate()}</span></span><small class="week-entry-count">${count} log entries</small><span class="week-dots" aria-hidden="true">${'<i></i>'.repeat(Math.min(100,count))}</span>`,"date",key,`calendar-day week-day ${key===today?"today":""}`);
+    }).join("")}</div>` : monthGrid(date.slice(0,7));
     if (mode === "year") body = `<div class="year-calendar">${Array.from({length:12}, (_, i) => {
         const month = `${date.slice(0,4)}-${String(i+1).padStart(2,"0")}`;
-        return `<section class="year-month"><h3>${button(new Date(`${month}-01T12:00:00`).toLocaleDateString(undefined,{month:"long"}), "calendar-month", `${month}-01`, "quiet")}</h3>${monthGrid(month)}</section>`;
+        return `<section class="year-month"><h3>${button(systemDate(`${month}-01`,{month:"long"}), "calendar-month", `${month}-01`, "quiet")}</h3>${monthGrid(month)}</section>`;
     }).join("")}</div>`;
     return `<div class="page-toolbar"><h2>${title}</h2><div class="actions">${modes}${button("←", mini ? "previous-month" : "calendar-previous")}${button("Today","today")}${button("→", mini ? "next-month" : "calendar-next")}</div></div>${body}`;
 
 }
 function renderTasks() {
-    return `<div class="page-toolbar"><div><h2>Events</h2><p class="muted">Build routines, set schedules, and log each occurrence.</p></div>${button("New event", "new-task", "", "")}</div><div class="card-grid">${view.tasks.map((t: Row) => `<article class="workspace-card"><h3>${esc(t.emoji || "✅")} ${esc(t.name)}</h3><p>${esc(t.recurrence_type || "daily")} ${t.repeat_interval > 1 ? `· every ${t.repeat_interval} days` : ""} · ${t.daily_default_count || 1} per slot</p><p class="muted">${esc((t.scheduled_times || []).join(", ") || "Any time")}${t.options?.length ? ` · ${esc(t.options.join(", "))}` : ""}</p><div class="actions">${button("Edit", "edit-task", t.id)}${button("Move up", "task-up", t.id, "quiet")}${button("Delete", "delete-task", t.id, "quiet danger")}</div></article>`).join("") || '<div class="empty-state">Create your first event.</div>'}</div>`;
+    const summary=(t:Row)=>t.recurrence_type==='weekly' ? `Weekdays: ${(t.recurrence_days||[]).map((n:number)=>['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][n-1]).join(', ')}` : t.recurrence_type==='monthly' ? `Month days: ${(t.recurrence_days||[]).join(', ')}` : `Every ${Number(t.repeat_interval||1)===1?'day':`${t.repeat_interval} days`}${t.repeat_start_date?` · starting ${systemDate(String(t.repeat_start_date).slice(0,10))}`:''}`;
+    return `<div class="page-toolbar"><div><p class="eyebrow">Event setup</p><h2>Events</h2></div>${button("New event","new-task")}</div><div class="event-definition-list">${view.tasks.map((t:Row)=>`<article class="workspace-card event-definition-row" data-event-row="${esc(t.id)}"><button type="button" class="quiet event-drag-handle" draggable="true" data-event-drag="${esc(t.id)}" aria-label="Reorder ${esc(t.name)}" title="Drag to reorder; use arrow keys to move">⠿</button><span class="event-definition-icon" style="background:${/^#[0-9a-f]{6}$/i.test(t.color||'')?t.color:'#4f46e5'}">${t.icon_data?`<img alt="" src="${esc(t.icon_data)}">`:esc(t.emoji||'✅')}</span><div class="event-definition-copy"><h3>${esc(t.name)}</h3><p>${esc(summary(t))} · Daily target ${(t.daily_default_count||1)*Math.max(1,t.scheduled_times?.length||0)}</p>${t.options?.length?`<small>Values: ${esc(t.options.join(', '))}</small>`:''}</div><span class="source-chip">${t.scheduled_times?.length?esc(t.scheduled_times.join(', ')):'Any time'}</span>${button('Edit','edit-task',t.id)}</article>`).join('') || '<div class="empty-state">Create your first event.</div>'}</div>`;
 }
-function renderGoals() {
-    return `<div class="page-toolbar"><div><h2>Goals</h2><p class="muted">Progress for ${esc(date)}</p></div>${button("New goal", "new-goal", "", "")}</div><div class="card-grid">${
-        view.goals
-            .map((g: Row) => {
-                const points = goalPoints(
-                    g,
-                    date,
-                    Number(view.user.week_starts_on ?? 1),
-                );
-                return `<article class="workspace-card"><h3>${esc(g.emoji || "🎯")} ${esc(g.name)}</h3><p class="goal-number">${points} <small>/ ${g.target_points} points · ${esc(g.period)}</small></p><progress max="${g.target_points}" value="${Math.min(points, g.target_points)}"></progress><div class="actions">${g.manual_enabled ? button("Add progress", "goal-progress", g.id, "") : ""}${button("Edit", "edit-goal", g.id)}${button("Delete", "delete-goal", g.id, "quiet danger")}</div><details><summary>Progress history</summary>${
-                    (g.entries || [])
-                        .slice()
-                        .reverse()
-                        .map(
-                            (e: Row) =>
-                                `<p>${esc(String(e.occurred_at).slice(0, 10))} · +${e.points} ${esc(e.note || "")}</p>`,
-                        )
-                        .join("") || "<p>No progress yet.</p>"
-                }</details></article>`;
-            })
-            .join("") ||
-        '<div class="empty-state">Add a goal to track what matters.</div>'
-    }</div>`;
+
+function renderGoals() { return goalList(view.goals,view.tasks); }
+function renderGoalDetails() {
+    const goal=view.goals.find((g:Row)=>String(g.id)===selectedGoal);
+    return goal ? goalDetails(goal,date,Number(view.user.week_starts_on ?? 1),view.tasks) : renderGoals();
 }
 function renderSearch() {
     const term = search.toLowerCase();
@@ -368,17 +406,24 @@ function renderChat() {
 function renderSensors() {
     return `<header class="page-header"><h2>Sensors</h2><p class="muted">Automatic desktop tracking continues in the tray. Account login and tracker pairing are separate.</p><div class="actions">${button("Refresh today’s sensors", "refresh-day")}${button("Link GitHub", "link-github")}${button("Connect Google Calendar", "google-connect")}</div></header><div class="card-grid">${view.sensors.map((s: Row) => `<article class="workspace-card"><h3>${esc(s.type)}</h3><p>${esc(s.username || "")} · ${s.enabled ? "Enabled" : "Paused"}</p><p class="muted">${esc(s.last_error || s.last_checked_at || "Not checked yet")}</p><div class="actions">${button(s.enabled ? "Pause" : "Enable", "toggle-sensor", s.id)}${button("Remove", "delete-sensor", s.id, "quiet danger")}</div></article>`).join("")}</div>`;
 }
+const locationPreferenceKey = () => `totalLogDesktop.saveLocation.${state.account?.id || 'default'}`;
+const saveEntryLocation = () => localStorage.getItem(locationPreferenceKey()) !== 'false';
+function renderTransferStats() {
+    const bytes=(value:number)=>{
+        if(value<1024) return `${value.toLocaleString()} B`;
+        const units=['KiB','MiB','GiB','TiB'];let n=value/1024,i=0;
+        while(n>=1024 && i<units.length-1) {n/=1024;i++;}
+        return `${n.toLocaleString(undefined,{maximumFractionDigits:2})} ${units[i]}`;
+    };
+    const stats=state.transfer_stats;
+    return `<div class="sync-transfer-heading"><h4>Data transferred</h4>${button("Reset counters","reset-transfer-stats","","secondary")}</div><table class="sync-transfer-stats"><thead><tr><th>Period</th><th>↑ Sent</th><th>↓ Received</th></tr></thead><tbody>${[['session','This session'],['all_time','All time']].map(([key,label])=>{
+        const totals=stats?.[key as 'session'|'all_time'] || {sent:0,received:0};
+        return `<tr data-transfer-period="${key}"><th>${label}</th><td title="${totals.sent} bytes">${bytes(totals.sent)}</td><td title="${totals.received} bytes">${bytes(totals.received)}</td></tr>`;
+    }).join('')}</tbody></table><p class="muted sync-transfer-note">Logging sync payloads, before compression; excludes network headers. All time starts with this version or the last reset.</p>`;
+}
 function renderSettings() {
     const u = view.user;
-    return `<header class="page-header"><h2>Settings</h2></header><div class="card-grid"><form id="settings-form" class="workspace-card"><h3>Logging preferences</h3><div class="preferences-row">${select(
-        "time_format",
-        "Time format",
-        [
-            ["24", "24 hour"],
-            ["12", "12 hour"],
-        ],
-        u.time_format || "24",
-    )}${select(
+    return `<header class="page-header"><h2>Settings</h2></header><div class="card-grid"><form id="settings-form" class="workspace-card"><h3>Logging preferences</h3><div class="theme-setting">${select("desktop_theme", "Theme", themes, currentTheme())}</div><div class="preferences-row"><label>Date & time format<input value="Windows regional settings" disabled></label>${select(
         "week_starts_on",
         "Week starts on",
         [
@@ -386,7 +431,7 @@ function renderSettings() {
             [0, "Sunday"],
         ],
         u.week_starts_on ?? 1,
-    )}${field("default_chat_model", "Default AI model", u.default_chat_model)}</div><button>Save preferences</button></form><section class="workspace-card"><h3>Your account</h3><p>${esc(u.name)}<br>${esc(u.email)}</p><p class="muted">${esc(state.account?.server)}</p><div class="actions">${button("Edit profile", "profile")}${button("Change password", "password")}${button("OpenRouter key", "api-key")}${button("Sign in again", "reauth", "", "quiet")}${button("Sign out", "logout", "", "quiet")}</div>${u.is_admin ? button("View users", "admin-users", "", "quiet") : ""}</section></div><section class="workspace-card"><h3>Sync</h3><p>Changes save to SQLite immediately. Foreground refresh: every 5 minutes. Background refresh: every hour. Your edits and manual actions sync immediately.</p><p>Last successful sync: ${state.last_sync ? new Date(state.last_sync).toLocaleString() : "Not yet synced"}</p>${button("Sync now", "sync", "", "")}</section>`;
+    )}${field("default_chat_model", "Default AI model", u.default_chat_model)}</div>${check("save_entry_location", "Save location with log entries", saveEntryLocation())}<button>Save preferences</button></form><section class="workspace-card"><h3>Your account</h3><p>${esc(u.name)}<br>${esc(u.email)}</p><p class="muted">${esc(state.account?.server)}</p><div class="actions">${button("Edit profile", "profile")}${button("Change password", "password")}${button("OpenRouter key", "api-key")}${button("Sign in again", "reauth", "", "quiet")}${button("Sign out", "logout", "", "quiet")}</div>${u.is_admin ? button("View users", "admin-users", "", "quiet") : ""}</section></div><section class="workspace-card"><h3>Sync</h3>${renderTransferStats()}<p>Changes save to SQLite immediately. Foreground refresh: every 5 minutes. Background refresh: every hour. Your edits and manual actions sync immediately.</p><p>Last successful sync: ${state.last_sync ? systemDateTime(state.last_sync) : "Not yet synced"}</p>${button("Sync now", "sync", "", "")}</section>`;
 }
 function renderUsage() {
     return `<header class="page-header"><h2>API usage</h2></header><div class="workspace-card table-scroll"><table><thead><tr><th>Time</th><th>Operation</th><th>Model</th><th>Tokens</th><th>Cost</th><th>Status</th></tr></thead><tbody>${view.api_calls
@@ -394,14 +439,26 @@ function renderUsage() {
         .reverse()
         .map(
             (a: Row) =>
-                `<tr><td>${esc(a.created_at)}</td><td>${esc(a.operation)}</td><td>${esc(a.model)}</td><td>${a.total_tokens || 0}</td><td>${esc(a.cost)}</td><td>${esc(a.error || a.status_code)}</td></tr>`,
+                `<tr><td>${esc(systemDateTime(a.created_at))}</td><td>${esc(a.operation)}</td><td>${esc(a.model)}</td><td>${a.total_tokens || 0}</td><td>${esc(a.cost)}</td><td>${esc(a.error || a.status_code)}</td></tr>`,
         )
         .join("")}</tbody></table></div>`;
 }
 
 function render() {
+    const pageKey = `${state.account?.id}:${page}:${date}:${calendarMode}:${selectedGoal}`;
+    const scrollSelectors = ['.logging-main','.logging-sidebar > nav','.sticky-events .event-grid','.daily-events .event-grid','.goal-strip','.all-events-options'];
+    const scrollPositions = scrollSelectors.map(selector=>{
+        const el=root.querySelector<HTMLElement>(selector);
+        return {selector,top:el?.scrollTop || 0,left:el?.scrollLeft || 0};
+    });
+    const preserveScroll = renderedPageKey === pageKey;
+    const keepEventsOpen = preserveScroll && Boolean(root.querySelector('.all-events-menu[open]'));
+    renderedPageKey = pageKey;
     updateScreensaver({ ...view.user, logo: view.screensaver_logo });
     const tracker = document.querySelector<HTMLElement>("#tracker-app")!;
+    const kindle = document.querySelector<HTMLElement>(".kindle-panel")!;
+    kindle.hidden = page !== "kindle";
+    document.body.append(kindle);
     tracker.hidden = page !== "tracker";
     document.body.append(tracker);
     root.hidden = false;
@@ -416,7 +473,7 @@ function render() {
     const pending = (state.operations || []).filter((q) =>
         ["pending", "applied"].includes(q.status),
     ).length;
-    root.innerHTML = `<aside class="logging-sidebar ${sidebarCollapsed ? "collapsed" : ""}"><button type="button" class="sidebar-toggle quiet" data-action="toggle-sidebar" aria-label="${sidebarCollapsed ? "Expand" : "Collapse"} sidebar" aria-expanded="${!sidebarCollapsed}" title="${sidebarCollapsed ? "Expand" : "Collapse"} sidebar">☰</button><div class="logging-brand"><div class="brand-mark">TL</div><strong>Total Log</strong></div><nav aria-label="Main navigation">${Object.entries(
+    root.innerHTML = `<aside class="logging-sidebar ${sidebarCollapsed ? "collapsed" : ""}"><div class="sidebar-brand-row"><button type="button" class="brand-mark" data-action="page" data-id="day" aria-label="Total Log">TL</button><button type="button" class="sidebar-toggle quiet" data-action="toggle-sidebar" aria-label="${sidebarCollapsed ? "Expand" : "Collapse"} sidebar" aria-expanded="${!sidebarCollapsed}" title="${sidebarCollapsed ? "Expand" : "Collapse"} sidebar">☰</button></div><nav aria-label="Main navigation">${Object.entries(
         pages,
     )
         .map(([key, label]) =>
@@ -429,7 +486,8 @@ function render() {
         )
         .join(
             "",
-        )}${button(navLabel("tracker", "Desktop tracker"), "tracker", "", `nav-button ${page === "tracker" ? "selected" : ""}`)}</nav><div class="sync-banner"><span>${busy ? "Syncing…" : state.error ? "Offline / sync needs attention" : pending ? "Changes saved locally" : "Up to date"}${state.last_sync ? ` · ${new Date(state.last_sync).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</span><span id="logging-message" role="status">${esc(message || state.error || "")}</span></div><div class="sidebar-account"><strong>${esc(view.user.name || "Your account")}</strong>${pending ? `<small>${pending} edits waiting to sync</small>` : ""}${button(`<span aria-hidden="true">↻</span><span class="nav-label">${busy ? "Syncing…" : "Sync now"}</span>`, "sync", "", "quiet sidebar-sync")}</div></aside><main class="logging-main">${issues.length ? `<section class="sync-issues"><h3>${issues.length} edits need attention</h3>${issues.map((q) => `<details><summary>${esc(q.operation.kind)} · ${esc(q.receipt?.message || q.status)}</summary><pre>${esc(JSON.stringify(q.operation.data, null, 2))}</pre><div class="actions">${q.status === "rejected" ? button("Retry unchanged", "retry", q.operation.id) : ""}${button("Copy saved input", "copy-operation", q.operation.id)}${button("Keep server version / discard this edit", "discard", q.operation.id, "quiet danger")}</div></details>`).join("")}</section>` : ""}<div id="page-content">${page === "day" ? `<div class="day-layout"><div class="day-log">${renderDay()}</div><aside class="day-calendar" aria-label="Calendar">${renderCalendar(true)}</aside></div>` : page === "tracker" ? '<div id="tracker-host"></div>' : ({ calendar: () => renderCalendar(), tasks: renderTasks, goals: renderGoals, search: renderSearch, chat: renderChat, sensors: renderSensors, settings: renderSettings, usage: renderUsage }[page] || renderDay)()}</div></main>`;
+        )}${button(navLabel("tracker", "Desktop tracker"), "tracker", "", `nav-button ${page === "tracker" ? "selected" : ""}`)}</nav><footer class="sidebar-footer"><div class="sync-banner"><span>${busy ? "Syncing…" : state.error ? "Offline / sync needs attention" : pending ? "Changes saved locally" : "Up to date"}${state.last_sync ? ` · ${systemTime(state.last_sync)}` : ""}</span><span id="logging-message" role="status">${esc(message || state.error || "")}</span></div><div class="sidebar-account"><strong>${esc(view.user.name || "Your account")}</strong>${pending ? `<small>${pending} edits waiting to sync</small>` : ""}${button(`<span class="nav-icon" aria-hidden="true">↻</span><span class="nav-label">${busy ? "Syncing…" : "Sync now"}</span>`, "sync", "", "nav-button sidebar-sync")}</div></footer></aside><main class="logging-main">${issues.length ? `<section class="sync-issues"><h3>${issues.length} edits need attention</h3>${issues.map((q) => `<details><summary>${esc(q.operation.kind)} · ${esc(q.receipt?.message || q.status)}</summary><pre>${esc(JSON.stringify(q.operation.data, null, 2))}</pre><div class="actions">${q.status === "rejected" ? button("Retry unchanged", "retry", q.operation.id) : ""}${button("Copy saved input", "copy-operation", q.operation.id)}${button("Keep server version / discard this edit", "discard", q.operation.id, "quiet danger")}</div></details>`).join("")}</section>` : ""}<div id="page-content">${page === "day" ? `<div class="day-layout"><div class="day-log">${renderDay()}</div><aside class="day-calendar" aria-label="Calendar">${renderCalendar(true)}</aside></div>` : page === "tracker" ? '<div id="tracker-host"></div>' : page === "kindle" ? '<header class="page-header"><h2>Kindle</h2></header><div id="kindle-host"></div>' : ({ calendar: () => renderCalendar(), tasks: renderTasks, goals: renderGoals, "goal-details": renderGoalDetails, search: renderSearch, chat: renderChat, sensors: renderSensors, settings: renderSettings, usage: renderUsage }[page] || renderDay)()}</div></main>`;
+    if (page === "kindle") root.querySelector("#kindle-host")!.append(kindle);
     if (page === "tracker") root.querySelector("#tracker-host")!.append(tracker);
     root.querySelectorAll<HTMLElement>(".nav-button").forEach(el => {
         const label = el.querySelector(".nav-label")?.textContent || "";
@@ -437,6 +495,14 @@ function render() {
     });
     root.querySelector(".sidebar-sync")?.setAttribute("aria-label", busy ? "Syncing…" : "Sync now");
     bindForms();
+    const eventsMenu=root.querySelector<HTMLDetailsElement>('.all-events-menu');
+    if(eventsMenu && keepEventsOpen) eventsMenu.open=true;
+    for(const saved of scrollPositions) {
+        if(!preserveScroll && saved.selector !== '.logging-sidebar > nav') continue;
+        const el=root.querySelector<HTMLElement>(saved.selector);
+        if(el) {el.scrollTop=saved.top;el.scrollLeft=saved.left;}
+    }
+    accentRow();
 }
 function field(
     name: string,
@@ -453,7 +519,7 @@ function select(
     options: unknown[][],
     value: unknown,
 ) {
-    return `<label>${label}<select name="${name}">${options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
+    return `<label>${label}<select name="${name}" aria-label="${esc(label)}">${options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
 }
 function textarea(
     name: string,
@@ -519,7 +585,6 @@ function bindForms() {
         );
     }
     for (const [actionName, rows] of [
-        ["edit-task", view.tasks],
         ["log-event", view.tasks],
         ["edit-goal", view.goals],
         ["edit-block", view.blocks],
@@ -561,9 +626,14 @@ function bindForms() {
         search = d.query;
         render();
     });
+    root.querySelector<HTMLSelectElement>('[name="desktop_theme"]')?.addEventListener("change", event => applyTheme((event.target as HTMLSelectElement).value));
     submit(root.querySelector("#settings-form"), async (d) => {
+        delete d.desktop_theme;
+        localStorage.setItem(locationPreferenceKey(), String(d.save_entry_location));
+        delete d.save_entry_location;
         await save("settings.update", {
             ...d,
+            time_format: view.user.time_format || "24",
             week_starts_on: Number(d.week_starts_on),
         });
     });
@@ -591,9 +661,14 @@ function dialog(
     element.innerHTML = `<form><header class="section-heading dialog-header"><h2>${esc(title)}</h2><button type="button" data-close class="quiet">Close</button></header><div class="dialog-body"><div class="form-fields">${fields}</div></div><footer class="dialog-footer"><p class="dialog-error" role="alert"></p><button type="button" data-cancel class="secondary">Cancel</button><button type="submit">${label}</button></footer></form>`;
     document.body.append(element);
     element.showModal();
+    if (element.querySelector('input[name="occurred_at"]')) element.dataset.entryDate = element.querySelector<HTMLElement>('[data-entry-date]')?.dataset.entryDate || date;
     enhanceEntryControls(element);
+    enhanceEntryLocation(element);
     const entryActions = element.querySelector('.entry-actions');
-    if (entryActions) element.querySelector('.dialog-footer')!.prepend(entryActions);
+    if (entryActions) {
+        element.querySelector('.dialog-footer')!.prepend(...Array.from(entryActions.children));
+        entryActions.remove();
+    }
     element.querySelector('[data-cancel]')!.addEventListener('click', () => element.close());
     element
         .querySelector("[data-close]")!
@@ -604,7 +679,7 @@ function dialog(
         if (!target) return;
         try {
             await action(target.dataset.action!, target.dataset.id || "");
-            if (["hide-block", "delete-block"].includes(target.dataset.action!)) element.close();
+            if (["hide-block", "delete-block", "delete-goal", "delete-task"].includes(target.dataset.action!)) element.close();
         } catch (e) {
             element.querySelector(".dialog-error")!.textContent = String(e);
         }
@@ -616,10 +691,22 @@ function dialog(
             "beforeend",
             iconPicker(),
         );
+    if (["New goal", "Edit goal"].includes(title)) {
+        const imageHost = element.querySelector('[data-goal-image]')!;
+        element.querySelectorAll('label').forEach(el=>{if(el.querySelector('[name="__icon_file"], [name="remove_icon"]')) imageHost.append(el);});
+        const projects = [...new Set<string>([
+            ...view.blocks.flatMap((b:Row)=>(b.metadata?.commits || []).map((c:Row)=>c.project)),
+            ...view.goals.flatMap((g:Row)=>(g.sources || []).filter((s:Row)=>s.type==="github").map((s:Row)=>s.github_project))
+        ].filter(Boolean).map((name:string)=>name.split('/').at(-1)!))].sort((a,b)=>a.localeCompare(b));
+        enhanceGoalSetup(element,projects);
+    }
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const btn = form.querySelector<HTMLButtonElement>("[type=submit]")!;
+        if(btn.disabled) return;
         btn.disabled = true;
+        const originalLabel = btn.textContent;
+        btn.textContent = 'Saving…';
         try {
             const data = formData(form);
             const file = data.__icon_file;
@@ -653,8 +740,10 @@ function dialog(
             element.querySelector(".dialog-error")!.textContent = String(e);
         } finally {
             btn.disabled = false;
+            btn.textContent = originalLabel;
         }
     });
+    return element;
 }
 function iconPicker() {
     return (
@@ -663,183 +752,98 @@ function iconPicker() {
     );
 }
 function editTask(task?: Row) {
-    const t = task || {};
-    dialog(
-        task ? "Edit event" : "New event",
-        field("name", "Event name", t.name, "text", true) +
-            field("emoji", "Emoji", t.emoji || "✅") +
-            field("color", "Color", t.color || "#4f46e5", "color") +
-            textarea(
-                "options_text",
-                "Options (comma separated)",
-                (t.options || []).join(", "),
-            ) +
-            select(
-                "recurrence_type",
-                "Repeat",
-                [
-                    ["daily", "Daily"],
-                    ["weekly", "Weekly"],
-                    ["monthly", "Monthly"],
-                ],
-                t.recurrence_type || "daily",
-            ) +
-            field(
-                "repeat_interval",
-                "Every N days",
-                t.repeat_interval || 1,
-                "number",
-            ) +
-            field(
-                "repeat_start_date",
-                "Start date",
-                t.repeat_start_date?.slice(0, 10),
-                "date",
-            ) +
-            field(
-                "weekdays_text",
-                "Weekdays (1 = Monday … 7 = Sunday)",
-                t.recurrence_type === "weekly"
-                    ? (t.recurrence_days || []).join(", ")
-                    : "1, 2, 3, 4, 5, 6, 7",
-            ) +
-            field(
-                "month_days_text",
-                "Days of month (comma separated)",
-                t.recurrence_type === "monthly"
-                    ? (t.recurrence_days || []).join(", ")
-                    : "1",
-            ) +
-            field(
-                "scheduled_times_text",
-                "Scheduled slots (e.g. 08:00, 18:00)",
-                (t.scheduled_times || []).join(", "),
-            ) +
-            field(
-                "daily_default_count",
-                "Target per slot",
-                t.daily_default_count || 1,
-                "number",
-            ) +
-            check("is_sticky", "Keep in day planner", t.is_sticky) +
-            field(
-                "visible_after",
-                "Show in planner after",
-                t.visible_after,
-                "time",
-            ),
-        async (d) => {
-            d.weekdays = String(d.weekdays_text)
-                .split(/[,\s]+/)
-                .filter(Boolean)
-                .map(Number);
-            delete d.weekdays_text;
-            if (!d.repeat_start_date) d.repeat_start_date = null;
-            if (!d.visible_after) d.visible_after = null;
-            if (
-                d.repeat_interval < 1 ||
-                d.repeat_interval > 999 ||
-                d.daily_default_count < 1 ||
-                d.daily_default_count > 999
-            )
-                throw new Error("Counts must be between 1 and 999.");
-            await save(task ? "tasks.update" : "tasks.create", d, task?.id);
-        },
-    );
+    const t=task || {};
+    const element=dialog(task ? "Edit event" : "New event",
+        `<p class="muted">Configure its button, recurrence, and time slots.</p>`+
+        field("name","Event name",t.name,"text",true)+
+        `<div class="event-setup-columns"><section data-event-appearance>${field("emoji","Emoji",t.emoji || "✅")}<div data-event-image></div></section><section class="event-color">${field("color","Button color",/^#[0-9a-f]{6}$/i.test(t.color || '') ? t.color : '#4f46e5',"color")}</section></div>`+
+        select("recurrence_type","Repeats",[["daily","Every N days"],["weekly","Selected weekdays"],["monthly","Selected days of the month"]],t.recurrence_type || "daily")+
+        `<div data-recurrence="daily" class="event-setup-columns">${field("repeat_interval","Repeat every (days)",t.repeat_interval || 1,"number")}${field("repeat_start_date","First occurrence",t.repeat_start_date?.slice(0,10),"date")}<small class="muted">Use 1 for every day. A first occurrence is required for longer intervals.</small></div>`+
+        `<fieldset data-recurrence="weekly"><legend>Weekdays</legend><div class="event-weekdays">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((name,i)=>`<label><input type="checkbox" data-weekday="${i+1}" ${t.recurrence_type==='weekly' && t.recurrence_days?.includes(i+1)?'checked':''}>${name}</label>`).join('')}</div></fieldset>`+
+        `<div data-recurrence="monthly">${field("month_days_text","Days of the month",t.recurrence_type==='monthly'?(t.recurrence_days||[]).join(', '):'1')}<small class="muted">Numbers from 1 to 31, separated by commas.</small></div>`+
+        `<div class="event-setup-columns"><section><strong>Time slots (optional)</strong><div data-event-slots></div><button type="button" class="secondary" data-add-slot>+ Add time slot</button><input type="hidden" name="scheduled_times_text"></section><section>${field("daily_default_count","Daily count per time slot",t.daily_default_count || 1,"number")}${check("is_sticky","Sticky event",t.is_sticky)}<small class="muted">Untimed sticky buttons appear above the timeline. Buttons disappear when their daily count is reached.</small></section></div>`+
+        `<section data-event-visibility>${check("__show_after","Become visible at a set time",Boolean(t.visible_after))}<div data-visibility-time>${field("visible_after","Visible after",t.visible_after || '18:00',"time")}</div><small class="muted">On today’s planner, hide the sticky button until this time.</small></section>`+
+        textarea("options_text","Optional values",(t.options || []).join(', '))+
+        (task?`<div class="entry-actions">${button('Delete event','delete-task',t.id,'secondary danger')}</div>`:''),
+        async d=>{
+            d.weekdays=Array.from(element.querySelectorAll<HTMLInputElement>('[data-weekday]:checked')).map(input=>Number(input.dataset.weekday));
+            delete d[''];
+            if(d.recurrence_type!=='daily') {d.repeat_interval=1;d.repeat_start_date=null;}
+            if(!d.repeat_start_date) d.repeat_start_date=null;
+            if(!d.is_sticky || !d.__show_after) d.visible_after=null;
+            delete d.__show_after;
+            if(d.repeat_interval<1 || d.repeat_interval>999 || d.daily_default_count<1 || d.daily_default_count>999) throw new Error('Counts must be between 1 and 999.');
+            if(d.recurrence_type==='daily' && d.repeat_interval>1 && !d.repeat_start_date) throw new Error('Choose the first occurrence for this repeat interval.');
+            if(d.recurrence_type==='weekly' && !d.weekdays.length) throw new Error('Choose at least one weekday.');
+            if(d.recurrence_type==='monthly' && !String(d.month_days_text).split(/[,\s]+/).some(n=>Number(n)>=1 && Number(n)<=31)) throw new Error('Choose at least one day from 1 to 31.');
+            await save(task?'tasks.update':'tasks.create',d,task?.id);
+        },task?'Save changes':'Save');
+    enhanceEventSetup(element,t);
 }
 function editGoal(goal?: Row) {
-    const g = goal || {};
-    dialog(
-        goal ? "Edit goal" : "New goal",
-        field("name", "Goal name", g.name, "text", true) +
-            field("emoji", "Emoji", g.emoji || "🎯") +
-            field("color", "Color", g.color || "#059669", "color") +
-            field(
-                "target_points",
-                "Target points",
-                g.target_points || 10,
-                "number",
-                true,
-            ) +
-            select(
-                "period",
-                "Period",
-                [
-                    ["daily", "Daily"],
-                    ["weekly", "Weekly"],
-                    ["monthly", "Monthly"],
-                    ["none", "All time"],
-                ],
-                g.period || "weekly",
-            ) +
-            field("start_date", "Start date", g.start_date, "date") +
-            field("end_date", "End date", g.end_date, "date") +
-            check(
-                "manual_enabled",
-                "Allow manual progress",
-                g.manual_enabled ?? true,
-            ) +
-            select(
-                "task_definition_id",
-                "Count an event",
-                [
-                    ["", "No event"],
-                    ...view.tasks.map((t: Row) => [t.id, t.name]),
-                ],
-                g.sources?.find((s: Row) => s.type === "event")
-                    ?.task_definition_id || "",
-            ) +
-            textarea(
-                "github_projects_text",
-                "GitHub projects (one per line)",
-                (g.sources || [])
-                    .filter((s: Row) => s.type === "github")
-                    .map((s: Row) => s.github_project)
-                    .join("\n"),
-            ),
-        async (d) => {
-            for (const k of ["start_date", "end_date", "task_definition_id"])
-                if (!d[k]) d[k] = null;
-            if (d.target_points < 1 || d.target_points > 1000000)
-                throw new Error("Target must be between 1 and 1,000,000.");
-            await save(goal ? "goals.update" : "goals.create", d, goal?.id);
-        },
-    );
+    const g=goal || {};
+    dialog(goal ? "Edit goal" : "New goal",
+        `<p class="muted">Set the target and choose what earns points.</p>`+
+        field("name","Goal name",g.name,"text",true)+field("emoji","Emoji",g.emoji || "🎯")+
+        `<div data-goal-image></div>`+field("color","Goal color",g.color || "#5145e5","color")+
+        `<div class="goal-input-row">${field("target_points","Target points",g.target_points || 10,"number",true)}${select("period","Resets",[["daily","☀ Daily"],["weekly","▤ Weekly"],["monthly","▦ Monthly"],["none","∞ One time"]],g.period || "weekly")}</div>`+
+        `<div class="goal-input-row">${field("start_date","Start (open)",g.start_date,"date")}${field("end_date","End (open)",g.end_date,"date")}</div>`+
+        `<fieldset class="goal-sources"><legend>Progress sources</legend>${select("task_definition_id","Existing event (+1 each)",[["","— No event linked"],...view.tasks.map((t:Row)=>[t.id,`${t.emoji || "✅"} ${t.name}`])],g.sources?.find((s:Row)=>s.type==="event")?.task_definition_id || "")}
+        <label>GitHub projects (+1 per commit)<input type="search" data-repo-search placeholder="Filter projects…" aria-label="Filter projects"></label><div class="repo-results" data-repo-results></div><small>Added projects</small><div class="source-chips" data-repo-chips></div><input type="hidden" name="github_projects_text" value="${esc((g.sources || []).filter((s:Row)=>s.type==="github").map((s:Row)=>String(s.github_project).split('/').at(-1)).join('\n'))}">
+        ${check("manual_enabled","Allow manual points",g.manual_enabled ?? true)}<small class="muted">Add a note and positive points from the goal detail page.</small></fieldset>`+
+        (goal ? `<div class="entry-actions">${button("Delete goal","delete-goal",g.id,"secondary danger")}</div>` : ""),
+        async d=>{
+            for(const k of ["start_date","end_date","task_definition_id"]) if(!d[k]) d[k]=null;
+            if(d.target_points<1 || d.target_points>1000000) throw new Error("Target must be between 1 and 1,000,000.");
+            await save(goal?"goals.update":"goals.create",d,goal?.id);
+        },"Save changes");
 }
-function locationFields(location?: Row) {
-    const value = location?.latitude != null && location?.longitude != null ? {latitude: location.latitude, longitude: location.longitude, location_accuracy: location.location_accuracy} : null;
-    return `<section class="location-controls"><h3>Location</h3><input type="hidden" name="__location" value="${value ? esc(JSON.stringify(value)) : ''}"><button type="button" data-location-capture class="secondary">Store current location</button><p data-location-status role="status">${value ? esc(`${value.latitude}, ${value.longitude}`) : 'No location stored'}</p><div class="location-coordinates"><input data-latitude aria-label="Latitude" placeholder="Latitude" type="number" step="any"><input data-longitude aria-label="Longitude" placeholder="Longitude" type="number" step="any"><button type="button" data-location-manual class="quiet">Use coordinates</button></div></section>`;
+function locationFields() {
+    return saveEntryLocation() ? '<input type="hidden" name="__location" value=""><small class="entry-coordinates" data-location-status hidden></small>' : '';
 }
-function logEvent(task: Row) {
-    dialog(
-        `Log ${task.name}`,
-        field("occurred_at", "Time", localTime(), "time", true) +
-            (task.options?.length
-                ? select(
-                      "value",
-                      "Value",
-                      task.options.map((v: string) => [v, v]),
-                      task.options[0],
-                  )
-                : "") +
-            (task.scheduled_times?.length
-                ? select(
-                      "scheduled_time",
-                      "Scheduled slot",
-                      task.scheduled_times.map((v: string) => [v, v]),
-                      task.scheduled_times[0],
-                  )
-                : "") + textarea("notes", "Entry text") + field("emoji", "Emoji", task.emoji || "✅") + locationFields(),
-        async (d) => {
-            if(d.scheduled_time && dayBlocks().filter((b:Row)=>String(b.task_event?.task_definition_id)===String(task.id)&&b.task_event?.scheduled_time===d.scheduled_time).length>=Number(task.daily_default_count||1))throw new Error('This time slot has reached its daily count.');
-            await save("events.create", {
-                ...d,
-                task_definition_id: task.id,
-                log_date: date,
-            });
-        },
-        "Log event",
-    );
+function entryCoordinates(location?: Row) {
+    if(location?.latitude == null || location?.longitude == null) return '';
+    const place=[location.suburb,location.city].filter(Boolean).join(', ');
+    return `<small class="entry-coordinates" ${place ? '' : `data-location-status data-latitude="${esc(location.latitude)}" data-longitude="${esc(location.longitude)}"`}>${esc(place || `${location.latitude}, ${location.longitude}`)}</small>`;
+}
+const creatingEvents = new Set<string>();
+async function logEvent(task: Row, slot?: string, manual=false) {
+    if(!manual) slot ||= scheduledSlots([task],dayBlocks(),date)[0]?.time;
+    const key=`${date}:${task.id}:${slot || ''}`;
+    if(creatingEvents.has(key)) return;
+    creatingEvents.add(key);
+    const logDate=date, clickedTime=localTime();
+    try {
+        if(slot && dayBlocks().filter((b:Row)=>String(b.task_event?.task_definition_id)===String(task.id) && b.task_event?.scheduled_time===slot).length>=Number(task.daily_default_count||1)) return;
+        const id=await save("events.create", {task_definition_id:task.id,log_date:logDate,occurred_at:clickedTime,scheduled_time:slot || null,manual_entry:manual,value:task.options?.[0] || null,notes:""});
+        if(!id) return;
+        let selected=task.options?.[0] || "";
+        const openEditor=()=>dialog("Edit log entry",
+            `<span hidden data-entry-date="${esc(logDate)}"></span><div class="entry-identity">${esc(task.name)}</div>`+
+            field("occurred_at","Time",clickedTime,"time",true)+
+            (task.options?.length ? select("value","Value",task.options.map((v:string)=>[v,v]),selected) : "")+
+            textarea("notes","Entry text")+locationFields(),
+            async d=>{await save("events.update",d,id);});
+        if(!task.options?.length) {openEditor();return;}
+        const picker=dialog(task.name,
+            select("value","Option",task.options.map((v:string)=>[v,v]),selected),
+            async ()=>{openEditor();}, "Done");
+        const choice=picker.querySelector<HTMLSelectElement>('[name="value"]')!;
+        const done=picker.querySelector<HTMLButtonElement>('[type="submit"]')!;
+        choice.addEventListener('change',async ()=>{
+            const value=choice.value;
+            choice.disabled=true;done.disabled=true;
+            const output=picker.querySelector('.dialog-error')!;
+            output.textContent='';
+            try {
+                await save('events.update',{value,notes:''},id);
+                selected=value;
+            } catch(e) {
+                choice.value=selected;
+                output.textContent=String(e);
+            } finally {choice.disabled=false;done.disabled=false;}
+        });
+    } finally {creatingEvents.delete(key);}
 }
 function showActivity(block: Row) {
     const git = block.type === 'sensor_github';
@@ -865,7 +869,7 @@ function showActivity(block: Row) {
     document.body.append(element);
     element.showModal();
 }
-async function action(action: string, id: string) {
+async function action(action: string, id: string, slot?: string) {
     const block = view.blocks.find((r: Row) => String(r.id) === id),
         task = view.tasks.find((r: Row) => String(r.id) === id),
         goal = view.goals.find((r: Row) => String(r.id) === id),
@@ -875,6 +879,12 @@ async function action(action: string, id: string) {
             "Sync this saved goal progress before editing its timeline entry.",
         );
     switch (action) {
+        case "reset-transfer-stats": {
+            const account=state.account?.id;
+            const stats=await invoke<NonNullable<LoggingState['transfer_stats']>>("logging_reset_transfer_stats");
+            if(state.account?.id===account) {mutationVersion++;state.transfer_stats=stats;render();}
+            break;
+        }
         case "toggle-sidebar":
             sidebarCollapsed = !sidebarCollapsed;
             localStorage.setItem("totalLogDesktop.sidebarCollapsed", String(sidebarCollapsed));
@@ -951,26 +961,13 @@ async function action(action: string, id: string) {
         case "edit-task":
             editTask(task);
             break;
+        case "log-any-event":
+            root.querySelectorAll<HTMLDetailsElement>('.all-events-menu[open]').forEach(menu=>menu.open=false);
+            await logEvent(task,undefined,true);
+            break;
         case "log-event":
-            logEvent(task);
+            await logEvent(task, slot);
             break;
-        case "task-up": {
-            const i = view.tasks.indexOf(task);
-            if (i > 0) {
-                const previous = view.tasks[i - 1];
-                await save(
-                    "tasks.position",
-                    { position: previous.position || 0 },
-                    task.id,
-                );
-                await save(
-                    "tasks.position",
-                    { position: task.position || i },
-                    previous.id,
-                );
-            }
-            break;
-        }
         case "delete-task":
             if (
                 confirm(
@@ -979,6 +976,14 @@ async function action(action: string, id: string) {
             )
                 await save("tasks.delete", {}, task.id);
             break;
+        case "goal-details":
+            selectedGoal=id; page="goal-details"; render(); break;
+        case "goal-period": {
+            const g=view.goals.find((g:Row)=>String(g.id)===selectedGoal);
+            if(g) date=id==="0"?localDate():shiftGoalPeriod(g,date,Number(id));
+            render(); break;
+        }
+        case "goal-history": date=id; render(); break;
         case "new-goal":
             editGoal();
             break;
@@ -1028,13 +1033,12 @@ async function action(action: string, id: string) {
                 break;
             }
             dialog(
-                "Entry details & edit",
-                renderBlock(block, true, true) + textarea(
+                "Edit log entry",
+                `<span hidden data-entry-date="${esc(blockDate(block))}"></span>${block.task_event ? `<div class="entry-identity">${esc(block.task_event.task_name || "Event")}</div>` : ""}<div class="entry-actions">${button(block.is_hidden ? "Show" : "Hide", "hide-block", block.id)}${button("Delete", "delete-block", block.id, "secondary danger")}</div>` + textarea(
                     block.task_event ? "notes" : "content",
                     "Entry text",
                     block.content,
                 ) +
-                    field("emoji", "Emoji", block.emoji) +
                     field(
                         "occurred_at",
                         "Time",
@@ -1045,7 +1049,10 @@ async function action(action: string, id: string) {
                             : localTime(),
                         "time",
                         true,
-                    ) + locationFields(block.task_event || block.metadata?.location),
+                    ) + (()=>{
+                        const options=view.tasks.find((t:Row)=>String(t.id)===String(block.task_event?.task_definition_id))?.options;
+                        return options?.length ? select("value","Value",options.map((v:string)=>[v,v]),block.task_event.selected_value) : "";
+                    })() + (block.attachments || []).map((a: Row) => button(`Open ${esc(a.original_name || "attachment")}`, "attachment", a.id, "quiet")).join("") + entryCoordinates(block.task_event || block.metadata?.location),
                 async (d) => {
                     await save(
                         block.task_event ? "events.update" : "blocks.update",
@@ -1336,9 +1343,60 @@ async function action(action: string, id: string) {
             break;
     }
 }
+let draggedEvent: string | null=null;
+let reorderingEvents=false;
+async function reorderEvents(source:string,target:string,after:boolean) {
+    if(reorderingEvents || source===target)return;
+    const tasks=[...view.tasks] as Row[];
+    const index=tasks.findIndex(t=>String(t.id)===source);
+    if(index<0)return;
+    const [moved]=tasks.splice(index,1);
+    const destination=tasks.findIndex(t=>String(t.id)===target);
+    if(destination<0)return;
+    tasks.splice(destination+(after?1:0),0,moved);
+    reorderingEvents=true;
+    try {
+        for(const [position,task] of tasks.entries()) {
+            if(Number(task.position)!==position) await save('tasks.position',{position},task.id,true);
+        }
+    } finally {
+        reorderingEvents=false;render();window.dispatchEvent(new Event("logging-user-sync"));void sync();
+        root.querySelector<HTMLElement>(`[data-event-drag="${CSS.escape(source)}"]`)?.focus({preventScroll:true});
+    }
+}
+root.addEventListener('dragstart',event=>{
+    const handle=(event.target as Element).closest<HTMLElement>('[data-event-drag]');
+    if(!handle || reorderingEvents){event.preventDefault();return;}
+    draggedEvent=handle.dataset.eventDrag!;
+    event.dataTransfer!.effectAllowed='move';event.dataTransfer!.setData('text/plain',draggedEvent);
+    handle.closest('[data-event-row]')?.classList.add('dragging');
+});
+root.addEventListener('dragover',event=>{
+    const row=(event.target as Element).closest<HTMLElement>('[data-event-row]');
+    if(!row || !draggedEvent)return;
+    event.preventDefault();event.dataTransfer!.dropEffect='move';
+    root.querySelectorAll('.drop-before,.drop-after').forEach(el=>el.classList.remove('drop-before','drop-after'));
+    row.classList.add(event.clientY<row.getBoundingClientRect().top+row.offsetHeight/2?'drop-before':'drop-after');
+});
+root.addEventListener('drop',event=>{
+    const row=(event.target as Element).closest<HTMLElement>('[data-event-row]');
+    if(!row || !draggedEvent)return;
+    event.preventDefault();const source=draggedEvent;draggedEvent=null;
+    void reorderEvents(source,row.dataset.eventRow!,event.clientY>=row.getBoundingClientRect().top+row.offsetHeight/2).catch(error);
+});
+root.addEventListener('dragend',()=>{
+    draggedEvent=null;root.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(el=>el.classList.remove('dragging','drop-before','drop-after'));
+});
+root.addEventListener('keydown',event=>{
+    const handle=(event.target as Element).closest<HTMLElement>('[data-event-drag]');
+    if(!handle || !['ArrowUp','ArrowDown'].includes(event.key))return;
+    event.preventDefault();const index=view.tasks.findIndex((t:Row)=>String(t.id)===handle.dataset.eventDrag);
+    const target=view.tasks[index+(event.key==='ArrowUp'?-1:1)];
+    if(target)void reorderEvents(handle.dataset.eventDrag!,String(target.id),event.key==='ArrowDown').catch(error);
+});
 root.addEventListener("click", (event) => {
     const el = (event.target as Element).closest<HTMLElement>("[data-action]");
-    if (el) void action(el.dataset.action!, el.dataset.id || "").catch(error);
+    if (el) void action(el.dataset.action!, el.dataset.id || "", el.dataset.slot).catch(error);
 });
 document.querySelector("#open-logging")?.addEventListener("click", () => {
     page = "day";
@@ -1359,3 +1417,10 @@ void reload()
         if (state.account && !state.last_sync) void sync();
     })
     .catch(error);
+
+document.addEventListener('click',event=>{
+    root.querySelectorAll<HTMLDetailsElement>('.all-events-menu[open]').forEach(menu=>{if(!menu.contains(event.target as Node))menu.open=false;});
+});
+document.addEventListener('keydown',event=>{
+    if(event.key==='Escape')root.querySelectorAll<HTMLDetailsElement>('.all-events-menu[open]').forEach(menu=>{menu.open=false;menu.querySelector<HTMLElement>('summary')?.focus();});
+});

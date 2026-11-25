@@ -3,6 +3,8 @@ import test from "node:test";
 import {
     project,
     occursOn,
+    scheduledSlots,
+    quickEventAvailable,
     goalPoints,
     syncInterval,
     calendarHeat,
@@ -160,4 +162,30 @@ test('offline goal progress appears in the timeline and event progress updates l
 test('editing an early morning event keeps its daily-log date',()=>{
   const view=project({account:null,snapshot:{logs:[{id:1,log_date:'2026-11-23'}],blocks:[{id:1,daily_log_id:1,occurred_at:'2026-11-22T17:00:00Z',task_event:{id:2}}]},operations:[op('events.update',{notes:'Edit',occurred_at:'02:30'},2)]});
   assert.equal(view.blocks[0].occurred_at,'2026-11-23T02:30');
+});
+
+test('offline goal setup retains event and GitHub progress sources',()=>{
+ const view=project({account:null,snapshot:{goals:[{id:4,sources:[{id:8,type:'github',github_project:'totallog'}],entries:[]}]},operations:[op('goals.update',{task_definition_id:3,github_projects_text:'totallog\nreader'},4)]});
+ assert.equal(view.goals[0].sources.length,3);
+ assert.equal(view.goals[0].sources.find(s=>s.github_project==='totallog').id,8);
+ assert.equal(view.goals[0].sources[0].task_definition_id,3);
+});
+
+test('scheduled placeholders honor viewed-day recurrence, visibility and individual slot counts',()=>{
+ const task={id:1,is_sticky:true,is_active:true,recurrence_type:'weekly',recurrence_days:[2],scheduled_times:['11:00','18:00'],visible_after:'10:00',daily_default_count:1};
+ assert.equal(scheduledSlots([task],[],'2026-11-24','2026-11-24','09:00').length,0);
+ assert.equal(scheduledSlots([task],[],'2026-11-24','2026-11-25','09:00').length,2);
+ assert.equal(scheduledSlots([task],[],'2026-11-23','2026-11-25','09:00').length,0);
+ const blocks=[{is_hidden:true,task_event:{task_definition_id:1,scheduled_time:'11:00'}}];
+ assert.deepEqual(scheduledSlots([task],blocks,'2026-11-24','2026-11-25','09:00').map(s=>s.time),['18:00']);
+});
+
+test('quick buttons honor daily limits regardless of pinning and exclude scheduled events',()=>{
+ assert.equal(quickEventAvailable({is_sticky:true,daily_default_count:1},1),false);
+ assert.equal(quickEventAvailable({is_sticky:true,daily_default_count:99},10),true);
+ assert.equal(quickEventAvailable({is_sticky:false,daily_default_count:3},1),true);
+ assert.equal(quickEventAvailable({is_sticky:false,daily_default_count:3},3),false);
+ assert.equal(quickEventAvailable({is_sticky:false,daily_default_count:3},4),false);
+ assert.equal(quickEventAvailable({is_sticky:true,scheduled_times:['11:00']},0),false);
+ assert.equal(quickEventAvailable({is_sticky:false,scheduled_times:['11:00']},0),false);
 });

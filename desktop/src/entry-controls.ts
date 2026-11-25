@@ -1,3 +1,4 @@
+import {systemDate,systemWallTime} from './system-format';
 // Reuse the web app's accessible drag/keyboard time control and offline emoji data.
 // @ts-ignore Shared web JavaScript module.
 import { initTimeScroller } from '../../resources/js/time-scroller.mjs';
@@ -11,23 +12,31 @@ export function enhanceEntryControls(dialog: HTMLDialogElement) {
         root.className = 'entry-time-control';
         const heading = document.createElement('div');
         heading.className = 'section-heading';
-        heading.textContent = 'Entry time';
+        dialog.classList.add('entry-dialog');
         const now = document.createElement('button');
         now.type = 'button'; now.className = 'quiet'; now.textContent = 'Now';
-        heading.append(now);
+
         const display = document.createElement('button');
         display.type = 'button'; display.className = 'time-display';
         display.setAttribute('aria-label', 'Selected entry time');
         input.type = 'text'; input.pattern = '(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00';
         input.setAttribute('aria-label', 'Entry time');
         input.hidden = true;
-        label.replaceWith(root); root.append(heading, input, display);
-        initTimeScroller(root, input, display, (value: string) => value);
+        label.replaceWith(root); root.append(heading, input); heading.append(display, now);
+        initTimeScroller(root, input, display, (value: string) => systemWallTime(value));
         now.addEventListener('click', () => {
             input.value = new Date().toTimeString().slice(0, 5);
             input.dispatchEvent(new Event('input', {bubbles: true}));
         });
         dialog.querySelector('.form-fields')!.prepend(root);
+        const title = dialog.querySelector('.dialog-header h2')!;
+        const titleGroup = document.createElement('div'); title.replaceWith(titleGroup); titleGroup.append(title);
+        const stamp = document.createElement('small'); stamp.className = 'entry-date-time'; titleGroup.append(stamp);
+        const updateStamp = () => { stamp.textContent = `${dialog.dataset.entryDate ? systemDate(dialog.dataset.entryDate) : ''} · ${systemWallTime(input.value)}`; };
+        input.addEventListener('input', updateStamp); input.addEventListener('change', updateStamp); updateStamp();
+        const text = dialog.querySelector<HTMLTextAreaElement>('textarea[name="content"], textarea[name="notes"]');
+        if (text) { text.setAttribute('aria-label', 'Entry text'); text.placeholder = 'What happened?'; text.closest('label')!.replaceWith(text); }
+
     }
     const emoji = dialog.querySelector<HTMLInputElement>('input[name="emoji"]');
     if (emoji) {
@@ -57,22 +66,7 @@ export function enhanceEntryControls(dialog: HTMLDialogElement) {
         search.addEventListener('input', draw); category.addEventListener('change', () => {search.value = ''; draw();});
         emoji.closest('label')!.replaceWith(host); emoji.type = 'hidden';
         toolbar.append(search, category); menu.append(toolbar, grid); host.append(emoji, toggle, menu); update();
-    }
-    const location = dialog.querySelector<HTMLInputElement>('[name="__location"]');
-    if (location) {
-        const output = dialog.querySelector<HTMLElement>('[data-location-status]')!;
-        dialog.querySelector('[data-location-capture]')!.addEventListener('click', () => {
-            output.textContent = 'Finding location…';
-            navigator.geolocation.getCurrentPosition(position => {
-                location.value = JSON.stringify({latitude: position.coords.latitude, longitude: position.coords.longitude, location_accuracy: Math.min(100000, position.coords.accuracy)});
-                output.textContent = `${position.coords.latitude.toFixed(5)}, ${position.coords.longitude.toFixed(5)} — saved with this entry`;
-            }, () => { output.textContent = 'Location unavailable. Allow location access in Windows/app settings, or enter coordinates below.'; }, {timeout: 15000, maximumAge: 0});
-        });
-        dialog.querySelector('[data-location-manual]')!.addEventListener('click', () => {
-            const lat = dialog.querySelector<HTMLInputElement>('[data-latitude]')!, lon = dialog.querySelector<HTMLInputElement>('[data-longitude]')!;
-            const latitude = Number(lat.value), longitude = Number(lon.value);
-            if (!lat.value || !lon.value || !Number.isFinite(latitude + longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {output.textContent = 'Enter valid latitude (-90 to 90) and longitude (-180 to 180).'; return;}
-            location.value = JSON.stringify({latitude, longitude}); output.textContent = `${latitude}, ${longitude} — saved with this entry`;
-        });
+        const text = dialog.querySelector('textarea[name="content"], textarea[name="notes"]');
+        if (text) text.before(host);
     }
 }

@@ -23,6 +23,17 @@ class DesktopSyncTest extends TestCase
         return $user;
     }
 
+    public function test_desktop_reverse_location_uses_web_geocoder_and_validates_coordinates(): void
+    {
+        $this->account();
+        $this->mock(\App\Services\NominatimReverseGeocoder::class, function ($mock) {
+            $mock->shouldReceive('reverse')->once()->with(24.91, 121.49)->andReturn(['city' => 'New Taipei', 'suburb' => 'Xindian']);
+        });
+        $this->postJson('/api/mobile/location/reverse', ['latitude' => 24.91, 'longitude' => 121.49])
+            ->assertOk()->assertJsonPath('city', 'New Taipei')->assertJsonPath('suburb', 'Xindian');
+        $this->postJson('/api/mobile/location/reverse', ['latitude' => 91, 'longitude' => 121.49])->assertUnprocessable();
+    }
+
     private function pull(?string $cursor = null, ?array $scope = null)
     {
         $response = $this->postJson('/api/mobile/desktop/pull', array_filter(['cursor' => $cursor, 'scope' => $scope], fn ($v) => $v !== null))->assertOk();
@@ -142,6 +153,48 @@ class DesktopSyncTest extends TestCase
         $this->postJson('/api/mobile/sync', ['operations' => [$operation]])->assertOk()->assertJsonPath('results.0.status', 'applied');
         $this->assertDatabaseCount('task_events', 1);
         $this->assertSame('08:23:00', $user->dailyLogs()->first()->taskEvents()->first()->occurred_at->format('H:i:s'));
+    }
+
+    public function test_immediate_event_edits_keep_one_entry_and_its_scheduled_slot(): void
+    {
+        $user = $this->account();
+        $task = $user->taskDefinitions()->create(['name' => 'Walk', 'color' => '#4f46e5', 'recurrence_type' => 'daily', 'is_active' => true, 'daily_default_count' => 1, 'scheduled_times' => ['11:00'], 'options' => ['Short', 'Long']]);
+        $push = function ($kind, $data, $target = null) {
+            return $this->postJson('/api/mobile/sync', ['operations' => [[
+                'id' => (string) Str::uuid(), 'kind' => $kind, 'target_id' => $target,
+                'edited_at' => now()->addSecond()->utc()->toISOString(), 'data' => $data,
+            ]]])->assertOk();
+        };
+        $created = $push('events.create', ['task_definition_id' => $task->id, 'log_date' => '2026-11-24', 'occurred_at' => '09:30', 'scheduled_time' => '11:00', 'value' => 'Short'])->assertJsonPath('results.0.status', 'applied');
+        $id = $created->json('results.0.entity_id');
+        $push('events.update', ['notes' => 'With the dog', 'occurred_at' => '09:35', 'value' => 'Long'], $id)->assertJsonPath('results.0.status', 'applied');
+        $event = \App\Models\TaskEvent::findOrFail($id);
+        $this->assertDatabaseCount('task_events', 1);
+        $this->assertSame('11:00', $event->scheduled_time);
+        $this->assertSame('09:35', $event->occurred_at->format('H:i'));
+        $this->assertSame('Long', $event->selected_value);
+        $this->assertSame('With the dog', $event->block->content);
+        $push('events.update', ['value' => 'Invalid'], $id)->assertJsonPath('results.0.status', 'rejected');
+        $this->assertSame('Long', $event->fresh()->selected_value);
+    }
+
+    public function test_manual_dropdown_event_can_be_logged_outside_recurrence_but_must_be_active_and_owned(): void
+    {
+        $user = $this->account();
+        $task = $user->taskDefinitions()->create(['name' => 'Weekly', 'color' => '#4f46e5', 'recurrence_type' => 'weekly', 'recurrence_days' => [1], 'is_active' => true, 'daily_default_count' => 1]);
+        $push = function ($manual, $id) {
+            return $this->postJson('/api/mobile/sync', ['operations' => [[
+                'id' => (string) Str::uuid(), 'kind' => 'events.create', 'target_id' => null,
+                'edited_at' => now()->utc()->toISOString(), 'data' => ['task_definition_id' => $id, 'log_date' => '2026-11-24', 'occurred_at' => '09:30', 'manual_entry' => $manual],
+            ]]])->assertOk();
+        };
+        $push(false, $task->id)->assertJsonPath('results.0.status', 'rejected');
+        $push(true, $task->id)->assertJsonPath('results.0.status', 'applied');
+        $task->update(['is_active' => false]);
+        $push(true, $task->id)->assertJsonPath('results.0.status', 'rejected');
+        $other = \App\Models\User::factory()->create()->taskDefinitions()->create(['name' => 'Other', 'color' => '#4f46e5', 'recurrence_type' => 'daily', 'is_active' => true]);
+        $push(true, $other->id)->assertJsonPath('results.0.status', 'rejected');
+        $this->assertDatabaseCount('task_events', 1);
     }
 
     public function test_notes_and_secrets_are_not_in_desktop_download(): void

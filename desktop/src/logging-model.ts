@@ -15,6 +15,7 @@ export type LoggingState = {
     last_sync?: number;
     clock_offset?: number;
     error?: string;
+    transfer_stats?: {session:{sent:number,received:number},all_time:{sent:number,received:number}};
 };
 export const syncInterval = (foreground: boolean) =>
     foreground ? 300_000 : 3_600_000;
@@ -64,6 +65,21 @@ export function occursOn(task: Row, date: string): boolean {
             Math.max(1, task.repeat_interval || 1) ===
             0
     );
+}
+
+/** Pinning controls placement; every quick event respects its daily count. */
+export function quickEventAvailable(task: Row, count: number): boolean {
+    if (task.scheduled_times?.length) return false;
+    return count < Number(task.daily_default_count || 1);
+}
+
+/** Incomplete scheduled slots, evaluated against the viewed day (including history). */
+export function scheduledSlots(tasks: Row[], blocks: Row[], date: string, today=localDate(), time=localTime()): Row[] {
+    return tasks.filter(t=>occursOn(t,date) && !(t.is_sticky && t.visible_after && date===today && time<t.visible_after))
+        .flatMap(task=>(task.scheduled_times || []).flatMap((slot:string)=>{
+            const count=blocks.filter(b=>String(b.task_event?.task_definition_id)===String(task.id) && b.task_event?.scheduled_time===slot).length;
+            return count < Number(task.daily_default_count || 1) ? [{task,time:slot,count}] : [];
+        })).sort((a,b)=>a.time.localeCompare(b.time) || Number(a.task.position||0)-Number(b.task.position||0));
 }
 
 /** A reproducible local view. Server records remain untouched beneath pending edits. */
@@ -141,6 +157,7 @@ export function project(state: LoggingState): Row {
                 if (block) {
                     block._pending = true;
                     Object.assign(block.task_event, data);
+                    if ("value" in data) block.task_event.selected_value=data.value;
                     if (data.location) Object.assign(block.task_event, data.location);
                     if (action === "update") {
                         block.content = data.notes;
@@ -176,17 +193,7 @@ export function project(state: LoggingState): Row {
             if (entity === "goals")
                 Object.assign(created, {
                     entries: [],
-                    sources: data.task_definition_id
-                        ? [
-                              {
-                                  type: "event",
-                                  task_definition_id:
-                                      ids.get(
-                                          String(data.task_definition_id),
-                                      ) || data.task_definition_id,
-                              },
-                          ]
-                        : [],
+                    sources: goalSources(data, ids),
                 });
             rows.push(created);
         } else if (action === "delete") {
@@ -235,17 +242,7 @@ export function project(state: LoggingState): Row {
                 if (entity === "blocks" && data.occurred_at)
                     row.occurred_at = `${view.logs.find((l: Row) => String(l.id) === String(row.daily_log_id))?.log_date}T${data.occurred_at}`;
                 if (entity === "goals" && action === "update")
-                    row.sources = data.task_definition_id
-                        ? [
-                              {
-                                  type: "event",
-                                  task_definition_id:
-                                      ids.get(
-                                          String(data.task_definition_id),
-                                      ) || data.task_definition_id,
-                              },
-                          ]
-                        : [];
+                    row.sources = goalSources(data, ids, row.sources);
             }
         }
     }
@@ -311,4 +308,10 @@ export function goalPoints(goal: Row, date: string, weekStarts = 1): number {
             return day >= from && day <= to;
         })
         .reduce((n: number, e: Row) => n + Number(e.points), 0);
+}
+
+function goalSources(data: Row, ids: Map<string, any>, existing: Row[] = []) {
+    const sources: Row[] = data.task_definition_id ? [{type:'event',task_definition_id:ids.get(String(data.task_definition_id)) || data.task_definition_id}] : [];
+    for (const name of split(data.github_projects_text)) sources.push({type:'github',github_project:name});
+    return sources.map(source => ({...existing.find(old=>old.type===source.type && (source.type==='event' ? String(old.task_definition_id)===String(source.task_definition_id) : old.github_project===source.github_project)),...source}));
 }

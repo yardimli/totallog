@@ -1,3 +1,4 @@
+import {systemFormatsReady,systemTime,systemDateTime} from './system-format';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -91,7 +92,7 @@ async function checkServerConnection(showError = true): Promise<boolean> {
       app_url: normalizedBaseUrl().toString(),
       pairing_key: pairingKey.value,
     }});
-    setConnectionHealth('working', `Connection verified ${new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}. Desktop, browser, and Kindle data can be sent.`);
+    setConnectionHealth('working', `Connection verified ${systemTime(new Date())}. Desktop, browser, and Kindle data can be sent.`);
     return true;
   } catch (error) {
     if (showError) setConnectionHealth('error', error instanceof Error ? error.message : String(error));
@@ -123,7 +124,7 @@ function renderExtensionHealth(report?: BrowserExtensionReport) {
     extensionHealth.dataset.state = report.status;
     extensionHealthLabel.textContent = report.status === 'receiving' ? 'Receiving browser data'
       : report.status === 'error' ? 'Browser forwarding needs attention' : 'Browser extension connected';
-    extensionHealthDetail.textContent = `${report.message} Last contact ${new Date(lastExtensionSeenAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}.`;
+    extensionHealthDetail.textContent = `${report.message} Last contact ${systemTime(new Date(lastExtensionSeenAt))}.`;
     return;
   }
   const reference = lastExtensionSeenAt || extensionDetectionStartedAt;
@@ -313,7 +314,7 @@ async function uploadActivityBatch() {
     pendingBatch = null;
     saveActivity();
     const totalSeconds = activities.reduce((sum, item) => sum + item.duration_seconds, 0);
-    setConnectionHealth('working', `Connected · sent ${minutesLabel(totalSeconds)} at ${new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`);
+    setConnectionHealth('working', `Connected · sent ${minutesLabel(totalSeconds)} at ${systemTime(new Date())}`);
   } catch (error) {
     setConnectionHealth('error', error instanceof Error ? error.message : String(error));
   } finally {
@@ -364,7 +365,7 @@ async function uploadKindleBook(book: KindleBook) {
     }});
     localStorage.setItem('totalLogDesktop.kindleLastTitle', book.title);
     localStorage.setItem('totalLogDesktop.kindleLastSyncAt', new Date().toISOString());
-    kindleStatus.textContent = `${book.title} · logged ${new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`;
+    kindleStatus.textContent = `${book.title} · logged ${systemTime(new Date())}`;
   } catch (error) {
     kindleStatus.textContent = error instanceof Error ? error.message : String(error);
   } finally {
@@ -408,7 +409,7 @@ setConnectionHealth(localStorage.getItem('totalLogDesktop.syncEnabled') === 'tru
 const previousKindleTitle = localStorage.getItem('totalLogDesktop.kindleLastTitle');
 const previousKindleSync = localStorage.getItem('totalLogDesktop.kindleLastSyncAt');
 if (previousKindleTitle && previousKindleSync) {
-  kindleStatus.textContent = `${previousKindleTitle} · last logged ${new Date(previousKindleSync).toLocaleString()}`;
+  void systemFormatsReady.then(()=>{kindleStatus.textContent = `${previousKindleTitle} · last logged ${systemDateTime(previousKindleSync)}`;});
 }
 
 document.querySelector('#reveal-key')?.addEventListener('click', event => {

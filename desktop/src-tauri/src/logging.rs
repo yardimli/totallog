@@ -3,6 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::{
     path::Path,
+    collections::HashMap,
     sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -12,6 +13,7 @@ pub struct Logging {
     db: Mutex<Connection>,
     sync_gate: tokio::sync::Mutex<()>,
     client: reqwest::Client,
+    session_transfers: Mutex<HashMap<String, (u64, u64)>>,
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -44,9 +46,11 @@ impl Logging {
             CREATE INDEX IF NOT EXISTS outbox_account ON outbox(account, seq);
             CREATE TABLE IF NOT EXISTS attachment_cache (account TEXT NOT NULL,id INTEGER NOT NULL,mime TEXT NOT NULL,data BLOB NOT NULL,PRIMARY KEY(account,id));
             CREATE TABLE IF NOT EXISTS aliases (account TEXT NOT NULL,operation_id TEXT NOT NULL,entity_id INTEGER NOT NULL,PRIMARY KEY(account,operation_id));
+            CREATE TABLE IF NOT EXISTS sync_transfer_totals (account TEXT PRIMARY KEY, sent INTEGER NOT NULL DEFAULT 0, received INTEGER NOT NULL DEFAULT 0);
             PRAGMA user_version=1;").map_err(err)?;
         Ok(Self {
             db: Mutex::new(db),
+            session_transfers: Mutex::new(HashMap::new()),
             sync_gate: tokio::sync::Mutex::new(()),
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(60))
@@ -76,10 +80,13 @@ impl Logging {
         token: Option<&str>,
         path: &str,
         data: Option<&Value>,
+        meter: Option<&str>,
     ) -> Result<Value, String> {
         let endpoint = format!("{server}api/mobile/{path}");
-        let mut request = if let Some(body) = data {
-            self.client.post(endpoint).json(body)
+        let payload = data.map(serde_json::to_vec).transpose().map_err(err)?;
+        let sent = payload.as_ref().map_or(0, |body| body.len() as u64);
+        let mut request = if let Some(body) = payload {
+            self.client.post(endpoint).header("Content-Type", "application/json").body(body)
         } else {
             self.client.get(endpoint)
         };
@@ -87,12 +94,26 @@ impl Logging {
         if let Some(token) = token {
             request = request.bearer_auth(token);
         }
-        let response = request
+        let mut response = request
             .send()
             .await
             .map_err(|_| "Cannot reach the server. Your edits are saved on this PC.".to_string())?;
         let status = response.status();
-        let body: Value = response.json().await.map_err(|_| {
+        let mut bytes = Vec::new();
+        let body_result = loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => bytes.extend_from_slice(&chunk),
+                Ok(None) => break Ok(()),
+                Err(e) => break Err(err(e)),
+            }
+        };
+        if let Some(account) = meter {
+            // Payload bytes after HTTP decompression, including error/partial responses.
+            // Metrics must never prevent successfully transferred edits from syncing.
+            let _ = self.record_transfers(account, sent, bytes.len() as u64);
+        }
+        body_result?;
+        let body: Value = serde_json::from_slice(&bytes).map_err(|_| {
             format!("Server returned {status}. Deploy the desktop sync API before connecting.")
         })?;
         if !status.is_success() {
@@ -103,6 +124,26 @@ impl Logging {
             ));
         }
         Ok(body)
+    }
+    fn record_transfers(&self, account: &str, sent: u64, received: u64) -> Result<(), String> {
+        let db = self.db.lock().map_err(err)?;
+        db.execute("INSERT INTO sync_transfer_totals(account,sent,received) VALUES(?,?,?) ON CONFLICT(account) DO UPDATE SET sent=sent+excluded.sent, received=received+excluded.received", params![account,sent as i64,received as i64]).map_err(err)?;
+        let mut sessions = self.session_transfers.lock().map_err(err)?;
+        let totals = sessions.entry(account.to_owned()).or_default();
+        totals.0 += sent;
+        totals.1 += received;
+        Ok(())
+    }
+    fn transfer_values(&self, db: &Connection, account: &str) -> Result<Value, String> {
+        let (sent, received): (u64,u64) = db.query_row("SELECT sent,received FROM sync_transfer_totals WHERE account=?",[account],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(err)?.unwrap_or_default();
+        let (session_sent,session_received)=self.session_transfers.lock().map_err(err)?.get(account).copied().unwrap_or_default();
+        Ok(json!({"session":{"sent":session_sent,"received":session_received},"all_time":{"sent":sent,"received":received}}))
+    }
+    fn reset_transfers(&self, account: &str) -> Result<Value,String> {
+        let db=self.db.lock().map_err(err)?;
+        db.execute("UPDATE sync_transfer_totals SET sent=0,received=0 WHERE account=?",[account]).map_err(err)?;
+        self.session_transfers.lock().map_err(err)?.remove(account);
+        self.transfer_values(&db,account)
     }
     fn view(&self) -> Result<Value, String> {
         let db = self.db.lock().map_err(err)?;
@@ -162,7 +203,7 @@ impl Logging {
         }
         Ok(
             json!({"account":{"id":id,"server":server,"user_id":user_id},"snapshot":snapshot,
-            "operations":operations,"aliases":aliases,"last_sync":last_sync,"clock_offset":clock_offset,"error":error}),
+            "transfer_stats":self.transfer_values(&db,&id)?,"operations":operations,"aliases":aliases,"last_sync":last_sync,"clock_offset":clock_offset,"error":error}),
         )
     }
     async fn sync(&self) -> Result<(), String> {
@@ -218,6 +259,7 @@ impl Logging {
                     Some(token),
                     "sync",
                     Some(&json!({"operations":operations})),
+                    Some(account),
                 )
                 .await?;
             let receipts = response["results"]
@@ -268,6 +310,7 @@ impl Logging {
                 Some(token),
                 "desktop/pull",
                 Some(&payload),
+                Some(account),
             )
             .await?;
         let expected: i64 = self
@@ -382,6 +425,7 @@ pub async fn logging_login(
             None,
             "login",
             Some(&json!({"email":email,"password":password,"device_name":"Total Log Desktop"})),
+            None,
         )
         .await?;
     let user_id = response["user"]["id"].as_i64().ok_or("Invalid account")?;
@@ -424,7 +468,7 @@ pub async fn logging_logout(state: tauri::State<'_, Logging>) -> Result<(), Stri
         return Err("Sync or resolve all saved edits before signing out.".into());
     }
     state
-        .request(&server, Some(&token), "logout", Some(&json!({})))
+        .request(&server, Some(&token), "logout", Some(&json!({})), None)
         .await?;
     state
         .db
@@ -439,11 +483,17 @@ pub async fn logging_logout(state: tauri::State<'_, Logging>) -> Result<(), Stri
 }
 
 #[tauri::command]
+pub fn logging_reset_transfer_stats(state: tauri::State<'_, Logging>) -> Result<Value,String> {
+    let (account,_,_)=state.session()?;
+    state.reset_transfers(&account)
+}
+
+#[tauri::command]
 pub fn logging_enqueue(
     state: tauri::State<'_, Logging>,
     account: String,
     operation: Value,
-) -> Result<Value, String> {
+) -> Result<(), String> {
     let (current, _, _) = state.session()?;
     if current != account {
         return Err("Account changed. Reopen this editor before saving.".into());
@@ -491,7 +541,7 @@ pub fn logging_enqueue(
             params![account, id, operation.to_string()],
         )
         .map_err(err)?;
-    state.view()
+    Ok(())
 }
 
 #[tauri::command]
@@ -632,6 +682,7 @@ pub async fn logging_online(
     // Deliberately bounded routes: neither arbitrary URLs nor bearer tokens enter the webview.
     let fixed = [
         "models",
+        "location/reverse",
         "profile",
         "password",
         "settings",
@@ -651,10 +702,15 @@ pub async fn logging_online(
     if !fixed.contains(&path.as_str()) && !dynamic && !confirm {
         return Err("Unsupported online action".into());
     }
+    // Read-only place lookup must not hold up outbox sync while geocoding.
+    if path == "location/reverse" {
+        let (_, server, token) = state.session()?;
+        return state.request(&server, Some(&token), &path, data.as_ref(), None).await;
+    }
     let _gate = state.sync_gate.lock().await;
     let (_, server, token) = state.session()?;
     state
-        .request(&server, Some(&token), &path, data.as_ref())
+        .request(&server, Some(&token), &path, data.as_ref(), None)
         .await
 }
 
@@ -735,6 +791,60 @@ mod tests {
         assert_eq!(db.query_row("SELECT COUNT(*) FROM records", [], |r| r.get::<_,i64>(0)).unwrap(),6);
     }
     use super::*;
+
+    #[test]
+    fn transfer_totals_persist_and_reset_without_touching_logs() {
+        let path=std::env::temp_dir().join(format!("totallog-transfer-test-{}-{}.sqlite3",std::process::id(),now()));
+        {
+            let store=Logging::open(&path).unwrap();
+            store.record_transfers("one",1024,2048).unwrap();
+            store.record_transfers("one",10,20).unwrap();
+            store.record_transfers("two",99,88).unwrap();
+            let db=store.db.lock().unwrap();
+            db.execute("INSERT INTO records VALUES('one','blocks','1','{}')",[]).unwrap();
+            db.execute("INSERT INTO outbox(account,id,operation) VALUES('one','pending','{}')",[]).unwrap();
+            assert_eq!(store.transfer_values(&db,"one").unwrap()["session"]["sent"],1034);
+        }
+        {
+            let store=Logging::open(&path).unwrap();
+            {
+                let db=store.db.lock().unwrap();
+                let values=store.transfer_values(&db,"one").unwrap();
+                assert_eq!(values["session"]["sent"],0);
+                assert_eq!(values["all_time"]["received"],2068);
+            }
+            assert_eq!(store.reset_transfers("one").unwrap(),json!({"session":{"sent":0,"received":0},"all_time":{"sent":0,"received":0}}));
+            let db=store.db.lock().unwrap();
+            assert_eq!(store.transfer_values(&db,"two").unwrap()["all_time"]["sent"],99);
+            assert_eq!(db.query_row("SELECT COUNT(*) FROM records",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+            assert_eq!(db.query_row("SELECT COUNT(*) FROM outbox",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn counts_utf8_payload_bytes_including_error_responses() {
+        use tiny_http::{Response,Server,StatusCode};
+        let server=Server::http("127.0.0.1:0").unwrap();
+        let base=format!("http://{}/",server.server_addr());
+        let payload=json!({"content":"你好"});
+        let body=json!({"message":"Not accepted"}).to_string();
+        let expected_received=body.len() as u64;
+        let expected_sent=serde_json::to_vec(&payload).unwrap().len() as u64;
+        let worker=std::thread::spawn(move||{
+            let mut request=server.recv().unwrap();
+            let mut received=Vec::new();request.as_reader().read_to_end(&mut received).unwrap();
+            assert_eq!(received.len() as u64,expected_sent);
+            request.respond(Response::from_string(body).with_status_code(StatusCode(422))).unwrap();
+        });
+        let store=Logging::open(Path::new(":memory:")).unwrap();
+        assert!(tauri::async_runtime::block_on(store.request(&base,None,"sync",Some(&payload),Some("one"))).is_err());
+        worker.join().unwrap();
+        let db=store.db.lock().unwrap();
+        let values=store.transfer_values(&db,"one").unwrap();
+        assert_eq!(values["session"]["sent"],expected_sent);
+        assert_eq!(values["session"]["received"],expected_received);
+    }
 
     #[test]
     fn database_survives_restart_and_partitions_accounts() {
